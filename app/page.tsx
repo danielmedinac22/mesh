@@ -22,6 +22,24 @@ export default function Home() {
           /connect
         </Link>
         <Link
+          href="/converse"
+          className="rounded-md border border-accent bg-accent/10 text-accent px-4 py-2 font-mono hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          /converse
+        </Link>
+        <Link
+          href="/ship"
+          className="rounded-md border border-accent bg-accent/10 text-accent px-4 py-2 font-mono hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          /ship
+        </Link>
+        <Link
+          href="/skills"
+          className="rounded-md border border-border bg-muted px-4 py-2 font-mono hover:border-accent hover:text-accent transition-colors"
+        >
+          /skills
+        </Link>
+        <Link
           href="/repos"
           className="rounded-md border border-border bg-muted px-4 py-2 font-mono hover:border-accent hover:text-accent transition-colors"
         >
