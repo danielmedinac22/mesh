@@ -27,6 +27,12 @@ export type EngineRunOptions = {
   prompt: string;
   system?: string;
   cacheSystem?: boolean;
+  // When false, the system prompt is used verbatim (no <thinking>-tag
+  // instruction appended) and all model output is routed to `text` events.
+  // Use for JSON-only tasks like Connect, where ingested source code may
+  // contain literal "<thinking>" substrings that would otherwise desync
+  // the tag splitter.
+  wrapThinking?: boolean;
   signal?: AbortSignal;
 };
 
@@ -35,8 +41,12 @@ export interface Engine {
   run(opts: EngineRunOptions): AsyncIterable<EngineEvent>;
 }
 
-function buildSystemBlocks(system: string | undefined, cache: boolean) {
-  const merged = wrapSystemWithThinking(system);
+function buildSystemBlocks(
+  system: string | undefined,
+  cache: boolean,
+  wrapThinking: boolean,
+) {
+  const merged = wrapThinking ? wrapSystemWithThinking(system) : (system ?? "");
   if (!cache) return merged;
   return [
     {
@@ -54,6 +64,7 @@ class RawSdkEngine implements Engine {
     const client = new Anthropic();
     const startedAt = Date.now();
     let metaSent = false;
+    const wrapThinking = opts.wrapThinking !== false;
 
     const buffer: EngineEvent[] = [];
     let waiter: (() => void) | null = null;
@@ -69,24 +80,26 @@ class RawSdkEngine implements Engine {
       }
     };
 
-    const splitter = makeTagSplitter({
-      onThinking: (delta) => {
-        if (!metaSent) {
-          push({ type: "meta", ttft_ms: Date.now() - startedAt });
-          metaSent = true;
-        }
-        push({ type: "thinking", delta });
-      },
-      onText: (delta) => {
-        if (!metaSent) {
-          push({ type: "meta", ttft_ms: Date.now() - startedAt });
-          metaSent = true;
-        }
-        push({ type: "text", delta });
-      },
-    });
+    const emitDelta = (delta: string, asThinking: boolean) => {
+      if (!metaSent) {
+        push({ type: "meta", ttft_ms: Date.now() - startedAt });
+        metaSent = true;
+      }
+      push({ type: asThinking ? "thinking" : "text", delta });
+    };
 
-    const system = buildSystemBlocks(opts.system, !!opts.cacheSystem);
+    const splitter = wrapThinking
+      ? makeTagSplitter({
+          onThinking: (d) => emitDelta(d, true),
+          onText: (d) => emitDelta(d, false),
+        })
+      : null;
+
+    const system = buildSystemBlocks(
+      opts.system,
+      !!opts.cacheSystem,
+      wrapThinking,
+    );
 
     const runStream = async () => {
       try {
@@ -128,7 +141,8 @@ class RawSdkEngine implements Engine {
           };
           if (anyEv.type === "content_block_delta" && anyEv.delta) {
             if (anyEv.delta.type === "text_delta" && anyEv.delta.text) {
-              splitter.feed(anyEv.delta.text);
+              if (splitter) splitter.feed(anyEv.delta.text);
+              else emitDelta(anyEv.delta.text, false);
             }
           }
           if (anyEv.type === "message_start" && anyEv.message?.usage) {
@@ -140,7 +154,7 @@ class RawSdkEngine implements Engine {
             outputTokens = anyEv.usage.output_tokens;
           }
         }
-        splitter.flush();
+        splitter?.flush();
         push({
           type: "done",
           duration_ms: Date.now() - startedAt,
@@ -183,6 +197,7 @@ class AgentSdkEngine implements Engine {
   async *run(opts: EngineRunOptions): AsyncIterable<EngineEvent> {
     const startedAt = Date.now();
     let metaSent = false;
+    const wrapThinking = opts.wrapThinking !== false;
 
     const buffer: EngineEvent[] = [];
     let waiter: (() => void) | null = null;
@@ -197,24 +212,24 @@ class AgentSdkEngine implements Engine {
       }
     };
 
-    const splitter = makeTagSplitter({
-      onThinking: (delta) => {
-        if (!metaSent) {
-          push({ type: "meta", ttft_ms: Date.now() - startedAt });
-          metaSent = true;
-        }
-        push({ type: "thinking", delta });
-      },
-      onText: (delta) => {
-        if (!metaSent) {
-          push({ type: "meta", ttft_ms: Date.now() - startedAt });
-          metaSent = true;
-        }
-        push({ type: "text", delta });
-      },
-    });
+    const emitDelta = (delta: string, asThinking: boolean) => {
+      if (!metaSent) {
+        push({ type: "meta", ttft_ms: Date.now() - startedAt });
+        metaSent = true;
+      }
+      push({ type: asThinking ? "thinking" : "text", delta });
+    };
 
-    const systemPrompt = wrapSystemWithThinking(opts.system);
+    const splitter = wrapThinking
+      ? makeTagSplitter({
+          onThinking: (d) => emitDelta(d, true),
+          onText: (d) => emitDelta(d, false),
+        })
+      : null;
+
+    const systemPrompt = wrapThinking
+      ? wrapSystemWithThinking(opts.system)
+      : (opts.system ?? "");
 
     const runStream = async () => {
       try {
@@ -248,7 +263,8 @@ class AgentSdkEngine implements Engine {
             const ev = anyMsg.event;
             if (ev.type === "content_block_delta" && ev.delta) {
               if (ev.delta.type === "text_delta" && ev.delta.text) {
-                splitter.feed(ev.delta.text);
+                if (splitter) splitter.feed(ev.delta.text);
+                else emitDelta(ev.delta.text, false);
               }
             }
           } else if (anyMsg.type === "result") {
@@ -260,7 +276,7 @@ class AgentSdkEngine implements Engine {
           if (opts.signal?.aborted) break;
         }
 
-        splitter.flush();
+        splitter?.flush();
         push({
           type: "done",
           duration_ms: Date.now() - startedAt,
