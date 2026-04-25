@@ -28,10 +28,12 @@ export function ProjectSwitcher({
   projects,
   currentId,
   onChanged,
+  variant = "default",
 }: {
   projects: ProjectSummary[];
   currentId: string | null;
   onChanged?: () => void;
+  variant?: "default" | "inline";
 }) {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -111,21 +113,24 @@ export function ProjectSwitcher({
     }
   }, [name, label, color, onChanged, router]);
 
+  const inline = variant === "inline";
   return (
-    <div ref={ref} style={{ position: "relative", padding: "0 12px" }}>
-      <div
-        className="font-mono"
-        style={{
-          fontSize: 10,
-          color: MESH.fgMute,
-          textTransform: "uppercase",
-          letterSpacing: "0.14em",
-          marginBottom: 6,
-          padding: "0 6px",
-        }}
-      >
-        Project
-      </div>
+    <div ref={ref} style={{ position: "relative", padding: inline ? 0 : "0 12px" }}>
+      {!inline && (
+        <div
+          className="font-mono"
+          style={{
+            fontSize: 10,
+            color: MESH.fgMute,
+            textTransform: "uppercase",
+            letterSpacing: "0.14em",
+            marginBottom: 6,
+            padding: "0 6px",
+          }}
+        >
+          Project
+        </div>
+      )}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -201,8 +206,8 @@ export function ProjectSwitcher({
           style={{
             position: "absolute",
             top: "calc(100% + 4px)",
-            left: 12,
-            right: 12,
+            left: inline ? 0 : 12,
+            right: inline ? 0 : 12,
             background: MESH.bgElev,
             border: `1px solid ${MESH.borderHi}`,
             borderRadius: 8,

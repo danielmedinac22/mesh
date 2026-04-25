@@ -16,9 +16,11 @@ import { AgentsSection } from "@/components/settings/agents-section";
 import { EngineSection, type EngineStatus } from "@/components/settings/engine-section";
 import { ProfileSection } from "@/components/settings/profile-section";
 import { GithubSection } from "@/components/settings/github-section";
+import { IntegrationsSection } from "@/components/settings/integrations-section";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "profile", label: "Profile" },
+  { id: "integrations", label: "Integrations" },
   { id: "github", label: "GitHub" },
   { id: "engine", label: "Engine" },
   { id: "skills", label: "Skills" },
@@ -84,7 +86,7 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Settings"
-      subtitle="profile · github · engine · skills · agents"
+      subtitle="profile · integrations · github · engine · skills · agents"
       topRight={
         <Pill tone={statusTone}>
           {statusMessage && status === "error"
@@ -130,6 +132,9 @@ export default function SettingsPage() {
           >
             <TabPanel id="profile">
               <ProfileSection onStatus={handleStatus} />
+            </TabPanel>
+            <TabPanel id="integrations">
+              <IntegrationsSection />
             </TabPanel>
             <TabPanel id="github">
               <GithubSection onStatus={handleStatus} />

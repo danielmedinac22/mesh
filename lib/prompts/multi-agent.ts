@@ -53,8 +53,9 @@ Rules:
 export function buildMasterDispatchSystem(args: {
   memory: Memory;
   agents: Agent[];
+  brain?: string;
 }): string {
-  return [
+  const parts = [
     DISPATCH_INSTRUCTIONS,
     "---",
     "AVAILABLE AGENTS:",
@@ -62,7 +63,13 @@ export function buildMasterDispatchSystem(args: {
     "---",
     "CROSS-REPO MEMORY (authoritative context):",
     compactMemory(args.memory),
-  ].join("\n\n");
+  ];
+  if (args.brain && args.brain.trim()) {
+    parts.push("---");
+    parts.push("PERSONAL BRAIN (user-level cross-project context):");
+    parts.push(args.brain);
+  }
+  return parts.join("\n\n");
 }
 
 export function buildMasterDispatchUser(args: {
@@ -261,6 +268,7 @@ export function buildAgentSystem(args: {
   memory: Memory;
   skillsContext: string;
   targetBranch: string;
+  brain?: string;
 }): string {
   const parts: string[] = [];
   parts.push(args.agent.body);
@@ -283,6 +291,13 @@ export function buildAgentSystem(args: {
   parts.push("");
   parts.push("CROSS-REPO MEMORY:");
   parts.push(compactMemory(args.memory));
+  if (args.brain && args.brain.trim()) {
+    parts.push("");
+    parts.push("---");
+    parts.push("");
+    parts.push("PERSONAL BRAIN (user-level cross-project context):");
+    parts.push(args.brain);
+  }
   return parts.join("\n");
 }
 
@@ -498,13 +513,19 @@ Rules:
 - If the qa agent did not cover an AC, GENERATE a test for it. Do not silently drop the AC.
 - Do NOT wrap JSON in markdown fences.`;
 
-export function buildSynthesizerSystem(memory: Memory): string {
-  return [
+export function buildSynthesizerSystem(memory: Memory, brain?: string): string {
+  const parts = [
     SYNTH_INSTRUCTIONS,
     "---",
     "CROSS-REPO MEMORY:",
     compactMemory(memory),
-  ].join("\n\n");
+  ];
+  if (brain && brain.trim()) {
+    parts.push("---");
+    parts.push("PERSONAL BRAIN (user-level cross-project context):");
+    parts.push(brain);
+  }
+  return parts.join("\n\n");
 }
 
 export function buildSynthesizerUser(args: {

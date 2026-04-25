@@ -5,6 +5,7 @@ import {
   loadConfig,
   type EngineMode,
 } from "@/lib/mesh-state";
+import { loadBrainForPrompt } from "@/lib/user-brain";
 import { getEngine } from "@/lib/engine";
 import { loadAgents, type Agent, type AgentId } from "@/lib/agents";
 import { buildSkillsContext } from "@/lib/skills-context";
@@ -122,12 +123,13 @@ function buildTicketInput(t: TicketRecord): string {
 async function classifyTicket(args: {
   ticket: string;
   memory: Memory;
+  brain?: string;
   engineMode: EngineMode;
   emit: (ev: PipelineEvent) => void;
   usage: Usage;
 }): Promise<Classification> {
   const engine = getEngine(args.engineMode);
-  const system = buildClassifySystem(args.memory);
+  const system = buildClassifySystem(args.memory, args.brain);
   const user = buildClassifyUser(args.ticket);
 
   let fullText = "";
@@ -167,6 +169,7 @@ async function runDispatch(args: {
   agents: Agent[];
   classification: Classification;
   ticket: string;
+  brain?: string;
   engineMode: EngineMode;
   emit: (ev: PipelineEvent) => void;
   usage: Usage;
@@ -175,6 +178,7 @@ async function runDispatch(args: {
   const system = buildMasterDispatchSystem({
     memory: args.memory,
     agents: args.agents,
+    brain: args.brain,
   });
   const user = buildMasterDispatchUser({
     ticket: args.ticket,
@@ -227,6 +231,7 @@ async function runSubAgent(args: {
   ticket: string;
   classification: Classification;
   instructions: string;
+  brain?: string;
   engineMode: EngineMode;
   emit: (ev: PipelineEvent) => void;
   usage: Usage;
@@ -237,6 +242,7 @@ async function runSubAgent(args: {
     memory: args.memory,
     skillsContext: args.skillsContext,
     targetBranch: args.classification.target_branch,
+    brain: args.brain,
   });
   const user = buildAgentUser({
     ticket: args.ticket,
@@ -290,13 +296,14 @@ async function runSynthesis(args: {
   classification: Classification;
   dispatch: DispatchPayload;
   outputs: AgentOutput[];
+  brain?: string;
   engineMode: EngineMode;
   emit: (ev: PipelineEvent) => void;
   usage: Usage;
   extraUserBlock?: string;
 }): Promise<PlanV2> {
   const engine = getEngine(args.engineMode);
-  const system = buildSynthesizerSystem(args.memory);
+  const system = buildSynthesizerSystem(args.memory, args.brain);
   const baseUser = buildSynthesizerUser({
     ticket: args.ticket,
     reposTouched: args.classification.repos_touched,
@@ -381,6 +388,7 @@ export async function* runDraftPipeline(input: {
     return;
   }
   const config = await loadConfig();
+  const brain = await loadBrainForPrompt();
 
   try {
     // --- 1. Classify ---
@@ -397,6 +405,7 @@ export async function* runDraftPipeline(input: {
     const classification = await classifyTicket({
       ticket: ticketInput,
       memory,
+      brain,
       engineMode: config.engineMode,
       emit,
       usage,
@@ -418,6 +427,7 @@ export async function* runDraftPipeline(input: {
       agents,
       classification,
       ticket: ticketInput,
+      brain,
       engineMode: config.engineMode,
       emit,
       usage,
@@ -453,6 +463,7 @@ export async function* runDraftPipeline(input: {
           ticket: ticketInput,
           classification,
           instructions: dispatch.instructions_per_agent[agent.id] ?? "",
+          brain,
           engineMode: config.engineMode,
           emit,
           usage,
@@ -500,6 +511,7 @@ export async function* runDraftPipeline(input: {
       classification,
       dispatch,
       outputs,
+      brain,
       engineMode: config.engineMode,
       emit,
       usage,
@@ -587,6 +599,7 @@ export async function* runAdjustPipeline(input: {
     return;
   }
   const config = await loadConfig();
+  const brain = await loadBrainForPrompt();
 
   try {
     const phaseUpdate = await updateTicket(input.ticket_id, {
@@ -620,6 +633,7 @@ export async function* runAdjustPipeline(input: {
       classification: base.classification as Classification,
       dispatch,
       outputs: base.agent_outputs ?? [],
+      brain,
       engineMode: config.engineMode,
       emit,
       usage,
