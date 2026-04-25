@@ -12,10 +12,27 @@ const PROJECTS_ROOT = path.join(ROOT, "projects");
 export const EngineModeSchema = z.enum(["raw", "agent"]);
 export type EngineMode = z.infer<typeof EngineModeSchema>;
 
+export const LanguageSchema = z.enum(["es", "en"]);
+export type Language = z.infer<typeof LanguageSchema>;
+
+export const ProfileSchema = z.object({
+  fullName: z.string().optional(),
+  email: z.string().optional(),
+  role: z.string().optional(),
+  company: z.string().optional(),
+  githubUsername: z.string().optional(),
+  language: LanguageSchema.default("es"),
+  avatarColor: z
+    .enum(["amber", "violet", "blue", "green", "red", "slate"])
+    .default("amber"),
+});
+export type Profile = z.infer<typeof ProfileSchema>;
+
 export const ConfigSchema = z.object({
   engineMode: EngineModeSchema.default("raw"),
   workspaceRoot: z.string().optional(),
   currentProjectId: z.string().optional(),
+  profile: ProfileSchema.optional(),
 });
 export type MeshConfig = z.infer<typeof ConfigSchema>;
 
