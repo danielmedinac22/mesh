@@ -44,11 +44,14 @@ export const ShipSessionSchema = z.object({
   plan_id: z.string(),
   created_at: z.string(),
   finished_at: z.string().optional(),
-  status: z.enum(["running", "completed", "failed"]).default("running"),
+  status: z
+    .enum(["running", "staged", "approved", "completed", "failed"])
+    .default("running"),
   branch: z.string(),
   steps: z.array(ShipStepResultSchema).default([]),
   prs: z.array(ShipPrSchema).default([]),
   error: z.string().optional(),
+  ticket_id: z.string().optional(),
 });
 export type ShipSession = z.infer<typeof ShipSessionSchema>;
 
@@ -59,6 +62,7 @@ async function ensure() {
 export async function createSession(input: {
   plan_id: string;
   branch: string;
+  ticket_id?: string;
 }): Promise<ShipSession> {
   await ensure();
   const id = `${Date.now()}-${slug(input.branch)}`;
@@ -70,9 +74,25 @@ export async function createSession(input: {
     status: "running",
     steps: [],
     prs: [],
+    ticket_id: input.ticket_id,
   };
   await writeSession(session);
   return session;
+}
+
+// Latest session for a given plan or ticket. Used by /api/ship/diff,
+// /approve, /discard to find what was just staged.
+export async function getLatestSessionFor(opts: {
+  plan_id?: string;
+  ticket_id?: string;
+}): Promise<ShipSession | null> {
+  const all = await listSessions();
+  const match = all.find((s) => {
+    if (opts.plan_id && s.plan_id !== opts.plan_id) return false;
+    if (opts.ticket_id && s.ticket_id !== opts.ticket_id) return false;
+    return true;
+  });
+  return match ?? null;
 }
 
 export async function writeSession(session: ShipSession): Promise<void> {

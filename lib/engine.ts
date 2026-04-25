@@ -3,8 +3,8 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { makeTagSplitter } from "@/lib/streaming/tag-splitter";
 import { wrapSystemWithThinking } from "@/lib/prompts/thinking-wrapper";
 
-export const DEFAULT_MODEL = "claude-opus-4-7";
-export const DEFAULT_EFFORT = "high" as const;
+export { DEFAULT_MODEL, DEFAULT_EFFORT } from "@/lib/engine-defaults";
+import { DEFAULT_MODEL, DEFAULT_EFFORT } from "@/lib/engine-defaults";
 const MAX_TOKENS = 16_000;
 
 export type EngineMode = "raw" | "agent";

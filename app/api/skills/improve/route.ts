@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getSkill, parseSkillFile } from "@/lib/skills";
 import { loadMemory } from "@/lib/memory";
-import { loadConfig } from "@/lib/mesh-state";
+import { getCurrentProjectId, loadConfig } from "@/lib/mesh-state";
+import { bootstrapProjects } from "@/lib/migrations";
 import { getEngine } from "@/lib/engine";
 import {
   buildSkillImproveSystem,
@@ -24,11 +25,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  await bootstrapProjects();
   const skill = await getSkill(parsed.data.id);
   if (!skill) {
     return Response.json({ error: "skill not found" }, { status: 404 });
   }
-  const memory = await loadMemory();
+  const projectId = await getCurrentProjectId();
+  const memory = projectId ? await loadMemory(projectId) : null;
   if (!memory) {
     return Response.json(
       { error: "no memory — run /connect first." },

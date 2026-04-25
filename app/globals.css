@@ -4,32 +4,56 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 36 94% 58%;
+    /* Mesh palette (raw hex) */
+    --mesh-bg: #0B0B0C;
+    --mesh-bg-elev: #111114;
+    --mesh-bg-elev-2: #16161A;
+    --mesh-bg-input: #0E0E11;
+    --mesh-border: #1F1F22;
+    --mesh-border-hi: #2A2A30;
+    --mesh-fg: #EDEDED;
+    --mesh-fg-dim: #9A9AA2;
+    --mesh-fg-mute: #6A6A72;
+    --mesh-amber: #F5A524;
+    --mesh-amber-dim: #7A5510;
+    --mesh-green: #30A46C;
+    --mesh-red: #E5484D;
+    --mesh-blue: #5EB1EF;
+    --mesh-purple: #B08CDD;
+
+    --mesh-code-default: #C8C8CC;
+    --mesh-code-string: #E8B464;
+    --mesh-code-keyword: #B08CDD;
+    --mesh-code-number: #5EB1EF;
+    --mesh-code-comment: #6A6A72;
+
+    /* Shadcn-compat HSL (mapped to Mesh palette so existing Tailwind tokens render correctly) */
+    --background: 240 4% 4%;
+    --foreground: 0 0% 93%;
+    --muted: 240 7% 8%;
+    --muted-foreground: 233 4% 56%;
+    --accent: 38 91% 55%;
     --accent-foreground: 20 14% 4%;
-    --destructive: 0 72% 51%;
+    --destructive: 358 75% 59%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 36 94% 58%;
+    --border: 240 5% 13%;
+    --input: 240 6% 9%;
+    --ring: 38 91% 55%;
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 36 94% 58%;
+    --background: 240 4% 4%;
+    --foreground: 0 0% 93%;
+    --muted: 240 7% 8%;
+    --muted-foreground: 233 4% 56%;
+    --accent: 38 91% 55%;
     --accent-foreground: 20 14% 4%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 358 75% 59%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 36 94% 58%;
+    --border: 240 5% 13%;
+    --input: 240 6% 9%;
+    --ring: 38 91% 55%;
   }
 }
 
@@ -37,8 +61,37 @@
   * {
     @apply border-border;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+  html, body {
+    background-color: var(--mesh-bg);
+    color: var(--mesh-fg);
   }
+  body {
+    font-feature-settings: "cv11", "ss01", "rlig" 1, "calt" 1;
+  }
+}
+
+/* Utility: subtle amber radial glow background for panel headers */
+.mesh-glow-amber {
+  background: radial-gradient(ellipse at 18% 50%, rgba(245, 165, 36, 0.12) 0%, transparent 55%);
+}
+
+/* Thinking stream typography */
+.mesh-mono {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--mesh-border); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--mesh-border-hi); }
+
+@keyframes mesh-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

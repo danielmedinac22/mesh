@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { PlanSchema } from "@/lib/prompts/plan";
+import { PlanV2Schema } from "@/lib/prompts/plan";
 import { listPlans, savePlan } from "@/lib/plan-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// POST accepts only v2 plans. Legacy v1 plans cannot be created via this
+// endpoint — they are read-only artifacts from previous demos.
 const BodySchema = z.object({
   ticket: z.string().min(1),
   classification: z.object({
@@ -16,7 +18,7 @@ const BodySchema = z.object({
     summary: z.string(),
     reasoning: z.string(),
   }),
-  plan: PlanSchema,
+  plan: PlanV2Schema,
 });
 
 export async function GET() {

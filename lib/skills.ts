@@ -2,13 +2,18 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { z } from "zod";
-import { listRepos } from "@/lib/mesh-state";
+import {
+  getCurrentProjectId,
+  getProject,
+  paths as meshPaths,
+} from "@/lib/mesh-state";
+import { bootstrapProjects } from "@/lib/migrations";
 
-export type SkillScope = "personal" | "project" | "repo";
+export type SkillScope = "personal" | "project";
 
 export type SkillLocation = {
   scope: SkillScope;
-  // For repo scope, the flarebill repo name.
+  // For project scope, the project display name.
   label: string;
   root: string;
 };
@@ -28,9 +33,13 @@ export type SkillDetail = SkillSummary & {
   raw: string;
 };
 
+export const SkillKindSchema = z.enum(["invariant", "pattern", "knowledge"]);
+export type SkillKind = z.infer<typeof SkillKindSchema>;
+
 export const SkillFrontmatterSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(""),
+  kind: SkillKindSchema.default("invariant"),
   "allowed-tools": z.union([z.string(), z.array(z.string())]).optional(),
   paths: z.union([z.string(), z.array(z.string())]).optional(),
   "disable-model-invocation": z.boolean().optional(),
@@ -39,6 +48,7 @@ export const SkillFrontmatterSchema = z.object({
 export type SkillFrontmatter = z.infer<typeof SkillFrontmatterSchema>;
 
 export async function skillLocations(): Promise<SkillLocation[]> {
+  await bootstrapProjects();
   const out: SkillLocation[] = [];
 
   const personal = path.join(os.homedir(), ".claude", "skills");
@@ -46,14 +56,16 @@ export async function skillLocations(): Promise<SkillLocation[]> {
     out.push({ scope: "personal", label: "personal", root: personal });
   }
 
-  const project = path.join(process.cwd(), ".claude", "skills");
-  out.push({ scope: "project", label: "project", root: project });
-
-  const repos = await listRepos();
-  for (const r of repos) {
-    if (r.name === "mesh") continue;
-    const root = path.join(r.localPath, ".claude", "skills");
-    out.push({ scope: "repo", label: r.name, root });
+  const projectId = await getCurrentProjectId();
+  if (projectId) {
+    const project = await getProject(projectId);
+    if (project) {
+      out.push({
+        scope: "project",
+        label: project.name,
+        root: meshPaths.projectSkills(projectId),
+      });
+    }
   }
 
   return out;
@@ -147,6 +159,7 @@ export async function createSkill(input: {
   scopeLabel: string;
   name: string;
   description?: string;
+  kind?: SkillKind;
 }): Promise<SkillDetail> {
   const dirName = slug(input.name);
   if (!dirName) throw new Error("invalid skill name");
@@ -158,15 +171,27 @@ export async function createSkill(input: {
   const body = defaultSkillBody({
     name: input.name,
     description: input.description ?? "",
+    kind: input.kind ?? "invariant",
   });
   const id = buildId(loc, dirName);
   return saveSkill(id, body);
 }
 
-function defaultSkillBody(opts: { name: string; description: string }): string {
+function defaultSkillBody(opts: {
+  name: string;
+  description: string;
+  kind: SkillKind;
+}): string {
+  const hint =
+    opts.kind === "invariant"
+      ? "Describe the invariant this skill enforces, when it applies, and what to do when violations are detected."
+      : opts.kind === "pattern"
+        ? "Describe the preferred way to do this in the codebase. Agents consume this when writing code — there is no runtime enforcement."
+        : "Describe stable facts about the codebase that agents should know upfront (stack, conventions, gotchas). Informational only.";
   return `---
 name: ${opts.name}
 description: ${opts.description || "TODO describe when this skill applies"}
+kind: ${opts.kind}
 allowed-tools:
   - Read
   - Grep
@@ -177,9 +202,7 @@ disable-model-invocation: false
 
 # ${opts.name}
 
-Describe the invariant this skill enforces, when it applies, and what to do when
-violations are detected. Use the AI improver (Day 3) to draft better wording
-from real diffs.
+${hint}
 `;
 }
 
@@ -201,9 +224,14 @@ export function parseSkillFile(raw: string): {
   const fmText = match[1];
   const body = match[2] ?? "";
   const obj = parseSimpleYaml(fmText);
+  const kindRaw = typeof obj.kind === "string" ? obj.kind : undefined;
   const frontmatter = SkillFrontmatterSchema.parse({
     name: typeof obj.name === "string" ? obj.name : "untitled",
     description: typeof obj.description === "string" ? obj.description : "",
+    kind:
+      kindRaw && ["invariant", "pattern", "knowledge"].includes(kindRaw)
+        ? kindRaw
+        : "invariant",
     "allowed-tools": obj["allowed-tools"] as SkillFrontmatter["allowed-tools"],
     paths: obj.paths as SkillFrontmatter["paths"],
     "disable-model-invocation":

@@ -1,544 +1,396 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AppShell,
+  KanbanColumn,
+  MESH,
+  NewTicketModal,
+  Pill,
+  PrimaryButton,
+  TicketCard,
+  type NewTicketPayload,
+  type KanbanColumnTone,
+} from "@/components/mesh";
+import type {
+  TicketIndexEntry,
+  TicketStatus,
+} from "@/lib/ticket-store";
 
-type RepoStatus = {
-  repoName: string;
-  repoPath: string;
-  currentBranch: string;
-  branches: string[];
-  changedFiles: number;
-  clean: boolean;
-  ahead: number;
-  behind: number;
-  error?: string;
+type TopbarStats = {
+  repos: number;
+  projectName: string | null;
+  invariants: number;
+  crossRepoFlows: number;
 };
 
-type Classification = {
-  type: "code_change" | "config" | "faq" | "issue_comment";
-  repos_touched: string[];
-  target_branch: string;
-  confidence: number;
-  summary: string;
-  reasoning: string;
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-  };
-  engine_mode?: string;
-};
+const COLS: Array<{
+  status: TicketStatus;
+  title: string;
+  subtitle: string;
+  tone: KanbanColumnTone;
+}> = [
+  {
+    status: "inbox",
+    title: "Inbox",
+    subtitle: "unclassified",
+    tone: "inbox",
+  },
+  {
+    status: "drafted",
+    title: "Drafted",
+    subtitle: "claude produced a plan",
+    tone: "amber",
+  },
+  {
+    status: "in_process",
+    title: "In process",
+    subtitle: "shipping across repos",
+    tone: "amber",
+  },
+  {
+    status: "for_review",
+    title: "For review",
+    subtitle: "prs open, awaiting human",
+    tone: "green",
+  },
+];
 
-type PlanStep = {
-  step: number;
-  repo: string;
-  file: string;
-  action: "edit" | "create";
-  rationale: string;
-  invariants_respected: string[];
-  memory_citations: string[];
-  target_branch: string;
-};
+export default function ConverseBoardPage() {
+  const [tickets, setTickets] = useState<TicketIndexEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<TopbarStats>({
+    repos: 0,
+    projectName: null,
+    invariants: 0,
+    crossRepoFlows: 0,
+  });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-type Plan = {
-  plan: PlanStep[];
-  sequencing: string[];
-  blast_radius: string;
-};
-
-type PlanEvent =
-  | { type: "thinking"; delta: string }
-  | { type: "meta"; ttft_ms: number }
-  | { type: "plan"; plan: Plan }
-  | {
-      type: "done";
-      duration_ms: number;
-      engine_mode: string;
-      input_tokens?: number;
-      output_tokens?: number;
-      cache_creation_input_tokens?: number;
-      cache_read_input_tokens?: number;
-    }
-  | { type: "error"; message: string };
-
-type Stage = "idle" | "classifying" | "classified" | "planning" | "planned" | "proceeding" | "done";
-
-const DEMO_TICKET =
-  "For enterprise customers, the first payment should have a 20% discount, but only if they came from a referral. Make sure this does not affect renewals.";
-
-export default function ConversePage() {
-  const [ticket, setTicket] = useState("");
-  const [stage, setStage] = useState<Stage>("idle");
-  const [classification, setClassification] = useState<Classification | null>(null);
-  const [thinking, setThinking] = useState("");
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [repos, setRepos] = useState<RepoStatus[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [ttft, setTtft] = useState<number | null>(null);
-  const [planDuration, setPlanDuration] = useState<number | null>(null);
-  const [engineMode, setEngineMode] = useState<string | null>(null);
-  const thinkingRef = useRef<HTMLPreElement>(null);
-
-  const loadBranches = useCallback(async () => {
+  const loadTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/branches", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { repos: RepoStatus[] };
-      setRepos(data.repos);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const res = await fetch("/api/converse/tickets", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { tickets: TicketIndexEntry[] };
+      setTickets(data.tickets ?? []);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const [memRes, reposRes, projectsRes] = await Promise.all([
+        fetch("/api/memory", { cache: "no-store" }),
+        fetch("/api/repos", { cache: "no-store" }),
+        fetch("/api/projects", { cache: "no-store" }),
+      ]);
+      let invariants = 0;
+      let crossRepoFlows = 0;
+      let projectName: string | null = null;
+      if (memRes.ok) {
+        const mem = await memRes.json().catch(() => null);
+        const memory = mem?.memory;
+        if (memory) {
+          invariants =
+            (memory.invariants?.length ?? 0) ||
+            (memory.repos ?? []).reduce(
+              (n: number, r: { invariants?: unknown[] }) =>
+                n + (r.invariants?.length ?? 0),
+              0,
+            );
+          crossRepoFlows = memory.cross_repo_flows?.length ?? 0;
+        }
+      }
+      let repos = 0;
+      if (reposRes.ok) {
+        const rd = await reposRes.json().catch(() => null);
+        if (rd?.repos) repos = rd.repos.length;
+      }
+      if (projectsRes.ok) {
+        const pd = await projectsRes.json().catch(() => null);
+        const list = (pd?.projects ?? []) as {
+          id: string;
+          name: string;
+          label?: string;
+        }[];
+        const current = list.find((p) => p.id === pd?.currentProjectId) ?? list[0];
+        if (current) {
+          projectName = current.label
+            ? `${current.name} · ${current.label}`
+            : current.name;
+        }
+      }
+      setStats({ repos, projectName, invariants, crossRepoFlows });
+    } catch {
+      // silent
     }
   }, []);
 
   useEffect(() => {
-    loadBranches();
-  }, [loadBranches]);
+    (async () => {
+      await Promise.all([loadTickets(), loadStats()]);
+      setLoading(false);
+    })();
+  }, [loadTickets, loadStats]);
 
+  // Poll for ticket updates while any ticket is mid-flight (drafting or shipping).
   useEffect(() => {
-    if (thinkingRef.current) {
-      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
-    }
-  }, [thinking]);
+    const hasMidFlight = tickets.some(
+      (t) => !!t.drafting_phase || t.status === "in_process",
+    );
+    if (!hasMidFlight) return;
+    const h = setInterval(() => {
+      void loadTickets();
+    }, 1500);
+    return () => clearInterval(h);
+  }, [tickets, loadTickets]);
 
-  const invariantsInPlan = useMemo(() => {
-    if (!plan) return new Set<string>();
-    const ids = new Set<string>();
-    for (const s of plan.plan) for (const id of s.invariants_respected) ids.add(id);
-    return ids;
-  }, [plan]);
+  const grouped = useMemo(() => {
+    const buckets: Record<TicketStatus, TicketIndexEntry[]> = {
+      inbox: [],
+      drafted: [],
+      in_process: [],
+      for_review: [],
+    };
+    for (const t of tickets) buckets[t.status].push(t);
+    return buckets;
+  }, [tickets]);
 
-  async function classify() {
-    if (!ticket.trim()) {
-      setError("Write a ticket first.");
-      return;
+  const draftedToday = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return tickets.filter(
+      (t) =>
+        (t.status === "drafted" ||
+          t.status === "in_process" ||
+          t.status === "for_review") &&
+        t.updated_at.startsWith(today),
+    ).length;
+  }, [tickets]);
+
+  // Auto-open new-ticket modal when arriving with ?new=1 (e.g. from onboarding card)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "1") {
+      setModalOpen(true);
+      params.delete("new");
+      const qs = params.toString();
+      const next = window.location.pathname + (qs ? `?${qs}` : "");
+      window.history.replaceState(null, "", next);
     }
-    setStage("classifying");
-    setError(null);
-    setClassification(null);
-    setPlan(null);
-    setThinking("");
-    setPlanDuration(null);
-    setTtft(null);
+  }, []);
+
+  // Keyboard: 'c' opens new ticket
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (modalOpen) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "c" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setModalOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalOpen]);
+
+  const onSubmit = async (p: NewTicketPayload) => {
+    setCreating(true);
     try {
-      const res = await fetch("/api/classify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      setClassification(json as Classification);
-      setEngineMode((json as Classification).engine_mode ?? null);
-      setStage("classified");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStage("idle");
-    }
-  }
-
-  async function approveAndPlan() {
-    if (!classification) return;
-    setStage("planning");
-    setThinking("");
-    setPlan(null);
-    setError(null);
-    setTtft(null);
-
-    try {
-      const res = await fetch("/api/plan", {
+      const res = await fetch("/api/converse/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ticket,
-          repos_touched: classification.repos_touched,
-          target_branch: classification.target_branch,
-          classifier_reasoning: classification.reasoning,
+          title: p.title,
+          description: p.description,
+          priority: p.priority,
+          labels: p.labels,
+          source_hint: p.source_hint,
         }),
       });
-      if (!res.ok || !res.body) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${text || "no body"}`);
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let sep: number;
-        while ((sep = buffer.indexOf("\n\n")) !== -1) {
-          const raw = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          for (const line of raw.split("\n")) {
-            if (!line.startsWith("data: ")) continue;
-            try {
-              const ev = JSON.parse(line.slice(6)) as PlanEvent;
-              if (ev.type === "thinking") setThinking((t) => t + ev.delta);
-              else if (ev.type === "meta") setTtft(ev.ttft_ms);
-              else if (ev.type === "plan") setPlan(ev.plan);
-              else if (ev.type === "done") {
-                setPlanDuration(ev.duration_ms);
-                setEngineMode(ev.engine_mode);
-                setStage("planned");
-              } else if (ev.type === "error") {
-                setError(ev.message);
-                setStage("classified");
-              }
-            } catch {
-              // ignore malformed
-            }
-          }
-        }
+      if (!res.ok) throw new Error(await res.text());
+      const { ticket } = (await res.json()) as { ticket: { id: string } };
+      setModalOpen(false);
+      await loadTickets();
+      if (p.handoff) {
+        // Fire and drain the SSE stream in the background. The board polls the
+        // ticket index to pick up status transitions.
+        void streamDraft(ticket.id, loadTickets);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStage("classified");
+      alert(
+        `Could not create ticket: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    } finally {
+      setCreating(false);
     }
-  }
+  };
 
-  async function proceed() {
-    if (!classification || !plan) return;
-    setStage("proceeding");
-    setError(null);
-    try {
-      const res = await fetch("/api/branches/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          branch: classification.target_branch,
-          repos: classification.repos_touched,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-
-      // Persist plan so /ship can load it.
-      await fetch("/api/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ticket,
-          classification: {
-            type: classification.type,
-            repos_touched: classification.repos_touched,
-            target_branch: classification.target_branch,
-            confidence: classification.confidence,
-            summary: classification.summary,
-            reasoning: classification.reasoning,
-          },
-          plan,
-        }),
-      }).catch(() => {
-        // best-effort; Ship can still run from the most recent successful save.
-      });
-
-      await loadBranches();
-      setStage("done");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStage("planned");
-    }
-  }
+  const totalActive = tickets.length;
 
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col">
-      <header className="flex items-baseline justify-between gap-4 border-b border-border px-6 py-4">
-        <div className="flex items-baseline gap-3">
-          <Link
-            href="/"
-            className="text-xs font-mono text-muted-foreground hover:text-accent"
-          >
-            mesh
-          </Link>
-          <span className="text-muted-foreground">/</span>
-          <h1 className="text-xl font-mono">converse</h1>
-          <span className="text-xs font-mono text-muted-foreground">
-            ticket in, plan out
-          </span>
+    <AppShell
+      title="Tickets"
+      subtitle={
+        loading
+          ? "loading tickets…"
+          : `${totalActive} active · ${stats.repos} repos · synced with mesh memory`
+      }
+      topRight={
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          {stats.projectName && (
+            <Pill tone="amber">
+              {stats.repos} repos · {stats.projectName}
+            </Pill>
+          )}
+          {stats.invariants > 0 && (
+            <Pill tone="default">{stats.invariants} invariants</Pill>
+          )}
+          {stats.crossRepoFlows > 0 && (
+            <Pill tone="default">
+              {stats.crossRepoFlows} cross-repo flows
+            </Pill>
+          )}
+          {draftedToday > 0 && (
+            <Pill tone="default">{draftedToday} drafted today</Pill>
+          )}
+          <PrimaryButton onClick={() => setModalOpen(true)} kbd="c">
+            + new ticket
+          </PrimaryButton>
         </div>
-        <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
-          <span>
-            stage: <span className="text-accent">{stage}</span>
-          </span>
-          {ttft !== null && <span>ttft: {ttft}ms</span>}
-          {planDuration !== null && <span>plan: {planDuration}ms</span>}
-          {engineMode && <span>via {engineMode}</span>}
-        </div>
-      </header>
-
-      {error && (
-        <div className="mx-6 mt-4 rounded-md border border-destructive bg-destructive/10 text-destructive p-3 font-mono text-xs">
-          {error}
-        </div>
-      )}
-
-      <section className="flex-1 grid grid-cols-[240px_1fr_320px] gap-0 min-h-0">
-        <aside className="border-r border-border p-4 flex flex-col gap-3 overflow-auto">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-              Repos
-            </h2>
-            <button
-              onClick={loadBranches}
-              className="text-[10px] font-mono text-muted-foreground hover:text-accent"
+      }
+    >
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          gap: 16,
+          padding: "18px 24px 16px",
+          overflow: "hidden",
+        }}
+      >
+        {COLS.map((c) => {
+          const bucket = grouped[c.status];
+          return (
+            <KanbanColumn
+              key={c.status}
+              title={c.title}
+              subtitle={c.subtitle}
+              tone={c.tone}
+              count={bucket.length}
+              footer={
+                c.status === "drafted" && bucket.length === 0 ? (
+                  <div
+                    className="font-mono"
+                    style={{
+                      padding: "10px 12px",
+                      fontSize: 10,
+                      color: MESH.fgMute,
+                      background: MESH.bgElev,
+                      border: `1px dashed ${MESH.border}`,
+                      borderRadius: 6,
+                      textAlign: "center",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    new tickets are auto-drafted by claude
+                    <br />— cross-repo plan appears here in ~8s —
+                  </div>
+                ) : null
+              }
             >
-              refresh
-            </button>
-          </div>
-          {repos.length === 0 ? (
-            <p className="text-xs text-muted-foreground font-mono">
-              no connected repos — run /connect
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {repos.map((r) => {
-                const isTarget = classification?.repos_touched.includes(r.repoName);
-                const onTargetBranch =
-                  classification && r.currentBranch === classification.target_branch;
-                return (
-                  <li
-                    key={r.repoName}
-                    className={`rounded-md border px-3 py-2 transition-colors ${
-                      isTarget
-                        ? "border-accent/60 bg-accent/5"
-                        : "border-border"
-                    }`}
-                  >
-                    <div className="font-mono text-sm flex items-center justify-between gap-2">
-                      <span className="truncate">{r.repoName}</span>
-                      {isTarget && (
-                        <span className="text-[9px] uppercase text-accent">
-                          target
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <span
-                        className={`text-[10px] font-mono truncate ${
-                          onTargetBranch ? "text-accent" : "text-muted-foreground"
-                        }`}
-                        title={r.currentBranch}
-                      >
-                        {r.currentBranch}
-                      </span>
-                      <span
-                        className={`text-[9px] uppercase font-mono ${
-                          r.clean ? "text-muted-foreground" : "text-accent"
-                        }`}
-                      >
-                        {r.clean
-                          ? "clean"
-                          : `${r.changedFiles} changes`}
-                      </span>
-                    </div>
-                    <p className="text-[9px] font-mono text-muted-foreground mt-1">
-                      {r.branches.length} branches
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </aside>
-
-        <div className="flex flex-col min-h-0">
-          <div className="p-4 border-b border-border flex gap-3 items-start">
-            <textarea
-              value={ticket}
-              onChange={(e) => setTicket(e.target.value)}
-              className="flex-1 min-h-[84px] max-h-[160px] bg-muted/50 text-foreground rounded-md border border-border p-3 font-mono text-xs focus:outline-none focus:border-accent"
-              placeholder="Paste a ticket from Slack, or write what you want to change..."
-              disabled={stage === "classifying" || stage === "planning" || stage === "proceeding"}
-            />
-            <div className="flex flex-col gap-2 w-[120px]">
-              <button
-                onClick={classify}
-                disabled={stage === "classifying" || stage === "planning"}
-                className="px-3 py-2 rounded-md border border-accent bg-accent text-accent-foreground font-mono text-xs hover:opacity-90 disabled:opacity-50"
-              >
-                {stage === "classifying" ? "classifying" : "classify"}
-              </button>
-              <button
-                onClick={() => setTicket(DEMO_TICKET)}
-                className="px-3 py-2 rounded-md border border-border text-[10px] font-mono text-muted-foreground hover:border-accent hover:text-accent"
-              >
-                use demo ticket
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between px-4 pt-3 pb-2">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-              Thinking
-            </h2>
-            <span className="text-xs font-mono text-muted-foreground">
-              {thinking.length.toLocaleString()} chars
-            </span>
-          </div>
-          <pre
-            ref={thinkingRef}
-            className="flex-1 mx-4 mb-4 rounded-md border border-border bg-zinc-950 p-4 font-mono text-sm text-foreground/90 overflow-auto whitespace-pre-wrap break-words min-h-0"
-          >
-            {thinking || (
-              <span className="text-muted-foreground">
-                {stage === "idle" && "— paste a ticket, then classify —"}
-                {stage === "classifying" && "— classifying —"}
-                {stage === "classified" && classification
-                  ? classifierSummary(classification)
-                  : null}
-                {stage === "planning" && "— waiting for first token —"}
-                {stage === "proceeding" && "— creating branches —"}
-                {stage === "done" && "— branches created. plan ready for Ship (Day 3). —"}
-              </span>
-            )}
-          </pre>
-        </div>
-
-        <aside className="border-l border-border p-4 flex flex-col gap-3 overflow-auto min-h-0">
-          {classification && (
-            <div className="rounded-md border border-accent/40 bg-accent/5 p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-mono text-accent">
-                  classification
-                </span>
-                <span className="text-[10px] font-mono text-muted-foreground">
-                  {Math.round(classification.confidence * 100)}%
-                </span>
-              </div>
-              <p className="text-xs">{classification.summary}</p>
-              <div className="flex flex-wrap gap-1.5">
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-accent/50 text-accent">
-                  {classification.type}
-                </span>
-                {classification.repos_touched.map((r) => (
-                  <span
-                    key={r}
-                    className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border text-muted-foreground"
-                  >
-                    {r}
-                  </span>
-                ))}
-              </div>
-              <p className="text-[10px] font-mono text-muted-foreground break-all">
-                branch: {classification.target_branch}
-              </p>
-              {stage === "classified" && (
-                <button
-                  onClick={approveAndPlan}
-                  className="mt-1 px-3 py-2 rounded-md border border-accent bg-accent text-accent-foreground font-mono text-xs hover:opacity-90"
-                >
-                  approve → plan
-                </button>
+              {bucket.length === 0 && c.status !== "drafted" && (
+                <EmptyBucket status={c.status} />
               )}
-            </div>
-          )}
+              {bucket.map((t) => (
+                <TicketCard
+                  key={t.id}
+                  ticket={t}
+                  href={`/converse/${encodeURIComponent(t.id)}`}
+                />
+              ))}
+            </KanbanColumn>
+          );
+        })}
+      </div>
 
-          {plan && (
-            <div className="flex flex-col gap-2">
-              <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-                Plan · {plan.plan.length} steps
-              </h3>
-              <ol className="flex flex-col gap-2">
-                {plan.plan.map((s) => (
-                  <li
-                    key={s.step}
-                    className="rounded-md border border-border p-2 flex flex-col gap-1"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs">
-                        <span className="text-muted-foreground">#{s.step}</span>{" "}
-                        <span className="text-accent">{s.repo}</span>
-                      </span>
-                      <span className="text-[9px] uppercase text-muted-foreground font-mono">
-                        {s.action}
-                      </span>
-                    </div>
-                    <p className="text-[11px] font-mono break-all">{s.file}</p>
-                    <p className="text-xs text-foreground/80">{s.rationale}</p>
-                    {s.invariants_respected.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {s.invariants_respected.map((id) => (
-                          <span
-                            key={id}
-                            className="text-[9px] font-mono px-1 py-0.5 rounded bg-accent/10 text-accent"
-                          >
-                            {id}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ol>
-
-              {invariantsInPlan.size > 0 && (
-                <div className="mt-2 rounded-md border border-border p-2">
-                  <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono mb-1">
-                    Invariants respected
-                  </h4>
-                  <ul className="flex flex-col gap-0.5">
-                    {[...invariantsInPlan].map((id) => (
-                      <li
-                        key={id}
-                        className="text-[11px] font-mono text-foreground/80 flex items-center gap-2"
-                      >
-                        <span className="text-accent">[x]</span> {id}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {plan.blast_radius && (
-                <div className="rounded-md border border-border p-2">
-                  <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono mb-1">
-                    Blast radius
-                  </h4>
-                  <p className="text-[11px] text-foreground/80">
-                    {plan.blast_radius}
-                  </p>
-                </div>
-              )}
-
-              {stage === "planned" && (
-                <button
-                  onClick={proceed}
-                  className="mt-1 px-3 py-2 rounded-md border border-accent bg-accent text-accent-foreground font-mono text-xs hover:opacity-90"
-                >
-                  proceed → create branches
-                </button>
-              )}
-              {stage === "proceeding" && (
-                <div className="text-xs font-mono text-accent">
-                  creating branches...
-                </div>
-              )}
-              {stage === "done" && (
-                <div className="rounded-md border border-accent/50 bg-accent/10 p-2 text-[11px] font-mono text-accent">
-                  branches created on {classification?.repos_touched.length} repos. Ship (Day 3) will execute.
-                </div>
-              )}
-            </div>
-          )}
-        </aside>
-      </section>
-    </main>
+      <NewTicketModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSubmit={onSubmit}
+        busy={creating}
+      />
+    </AppShell>
   );
 }
 
-function classifierSummary(c: Classification): string {
-  return `[classified] ${c.type} · ${Math.round(
-    c.confidence * 100,
-  )}% confidence
-repos: ${c.repos_touched.join(", ")}
-branch: ${c.target_branch}
+function EmptyBucket({ status }: { status: TicketStatus }) {
+  const copy =
+    status === "inbox"
+      ? "press c to create a ticket"
+      : status === "in_process"
+        ? "tickets land here when you ship"
+        : status === "for_review"
+          ? "open prs will surface here"
+          : "";
+  if (!copy) return null;
+  return (
+    <div
+      className="font-mono"
+      style={{
+        padding: "12px 10px",
+        fontSize: 10,
+        color: MESH.fgMute,
+        textAlign: "center",
+      }}
+    >
+      {copy}
+    </div>
+  );
+}
 
-reasoning:
-${c.reasoning}
-
-approve to begin planning.`;
+async function streamDraft(
+  ticketId: string,
+  onUpdate: () => Promise<void>,
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `/api/converse/tickets/${encodeURIComponent(ticketId)}/draft`,
+      { method: "POST" },
+    );
+    if (!res.ok || !res.body) {
+      void onUpdate();
+      return;
+    }
+    const reader = res.body.getReader();
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+  } catch {
+    // swallow; polling handles final state
+  } finally {
+    void onUpdate();
+  }
 }

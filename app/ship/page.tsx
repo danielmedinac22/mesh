@@ -1,573 +1,1356 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  AppShell,
+  ChecksCard,
+  DiffViewer,
+  Dot,
+  MESH,
+  ModalShell,
+  ModalLabel,
+  NavIcon,
+  Pill,
+  PreviewServerCard,
+  PrimaryButton,
+  SecondaryButton,
+  TicketReadyCard,
+  type CheckLine,
+  type DiffFileView,
+  type PreviewLine,
+  type SidebarRepo,
+  type TicketReadySummary,
+} from "@/components/mesh";
 
-type PlanStep = {
-  step: number;
-  repo: string;
-  file: string;
-  action: "edit" | "create";
-  rationale: string;
-  invariants_respected: string[];
-  memory_citations: string[];
-  target_branch: string;
+type ReadyTicket = {
+  id: string;
+  title: string;
+  status: "for_review";
+  plan_id?: string;
+  prs_count: number;
+  labels?: string[];
 };
 
 type SavedPlan = {
   id: string;
-  created_at: string;
   ticket: string;
   classification: {
-    type: string;
     repos_touched: string[];
     target_branch: string;
-    confidence: number;
     summary: string;
-    reasoning: string;
   };
   plan: {
-    plan: PlanStep[];
-    sequencing: string[];
-    blast_radius: string;
+    schema_version?: string;
+    spec?: { summary?: string };
+    tests?: { step: number; repo: string; file: string; action: string }[];
+    implementation?: { step: number; repo: string; file: string; action: string }[];
+    plan?: { step: number; repo: string; file: string; action: string }[];
   };
 };
 
-type ShipEvent =
-  | {
-      type: "session-start";
-      session_id: string;
-      plan_id: string;
-      branch: string;
-      repos: string[];
-      steps: number;
-    }
-  | { type: "step-start"; step: number; repo: string; file: string; action: string }
-  | { type: "thinking"; step: number; delta: string }
-  | { type: "draft-ready"; step: number; attempt: number; lines: number }
-  | {
-      type: "skill-intercept";
-      step: number;
-      attempt: number;
-      skill_id: string;
-      title: string;
-      message: string;
-      fix_hint: string;
-    }
-  | { type: "skill-pass"; step: number; attempt: number }
-  | { type: "commit"; step: number; repo: string; sha: string; message: string }
-  | { type: "step-done"; step: number; attempts: number }
-  | {
-      type: "pr-opened";
-      repo: string;
-      url: string;
-      simulated: boolean;
-      pushed: boolean;
-      number?: number;
-      push_reason?: string;
-    }
-  | { type: "done"; session_id: string; duration_ms: number }
-  | { type: "error"; message: string; step?: number };
-
-type StepView = {
-  step: number;
-  repo: string;
-  file: string;
-  action: string;
-  status: "pending" | "running" | "intercepted" | "committed" | "failed";
-  attempts: number;
-  thinking: string;
-  interceptions: {
-    skill_id: string;
-    title: string;
-    message: string;
-    fix_hint: string;
-    resolved: boolean;
+type FullTicket = {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  plan_id?: string;
+  labels: string[];
+  prs: {
+    repo: string;
+    url: string;
+    simulated: boolean;
+    number?: number;
+    html_url?: string;
   }[];
-  commit_sha?: string;
-  commit_message?: string;
-  error?: string;
+  adjustments: {
+    at: string;
+    instruction: string;
+    previous_plan_id: string;
+  }[];
 };
 
-type PrView = {
+type AdjustEvent =
+  | { type: "thinking"; delta: string }
+  | { type: "text"; delta: string }
+  | { type: "edit-ready"; file: string; additions_estimate: number }
+  | {
+      type: "commit";
+      repo: string;
+      sha: string;
+      message: string;
+      files: string[];
+    }
+  | { type: "push"; repo: string; pushed: boolean; reason?: string }
+  | { type: "done"; duration_ms: number; files_touched: number }
+  | { type: "error"; message: string };
+
+type ApproveResult = {
   repo: string;
   url: string;
-  simulated: boolean;
-  pushed: boolean;
   number?: number;
-  push_reason?: string;
+  simulated: boolean;
+  marked_ready: boolean;
+  reason?: string;
 };
 
 export default function ShipPage() {
-  const [plans, setPlans] = useState<SavedPlan[]>([]);
-  const [planId, setPlanId] = useState<string>("");
-  const [steps, setSteps] = useState<StepView[]>([]);
-  const [prs, setPrs] = useState<PrView[]>([]);
-  const [running, setRunning] = useState(false);
-  const [duration, setDuration] = useState<number | null>(null);
+  const [tickets, setTickets] = useState<ReadyTicket[]>([]);
+  const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
+  const [activeTicket, setActiveTicket] = useState<FullTicket | null>(null);
+  const [plan, setPlan] = useState<SavedPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [forceSim, setForceSim] = useState(false);
-  const [demoLoosen, setDemoLoosen] = useState(true);
-  const [focusedStep, setFocusedStep] = useState<number | null>(null);
-  const thinkingRef = useRef<HTMLPreElement>(null);
+  const [diffByRepo, setDiffByRepo] = useState<
+    Record<string, { files: DiffFileView[]; base: string; branch: string } | null>
+  >({});
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [checksByRepo, setChecksByRepo] = useState<Record<string, CheckLine[]>>(
+    {},
+  );
+  const [checksRunning, setChecksRunning] = useState<Record<string, boolean>>({});
+  const [previewByRepo, setPreviewByRepo] = useState<Record<string, PreviewLine>>(
+    {},
+  );
+  const [previewBusy, setPreviewBusy] = useState<Record<string, boolean>>({});
+  const [approving, setApproving] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
+  const [adjustRepo, setAdjustRepo] = useState<string>("");
+  const [adjustInstruction, setAdjustInstruction] = useState("");
+  const [adjustRunning, setAdjustRunning] = useState(false);
+  const [adjustEvents, setAdjustEvents] = useState<AdjustEvent[]>([]);
+  // forceSim removed: PR creation happens during Build's "Proceed Ship",
+  // and approve/discard already honor each PR's `simulated` flag.
 
-  const loadPlans = useCallback(async () => {
+  const loadTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/plans", { cache: "no-store" });
+      const res = await fetch("/api/converse/tickets/ready", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { plans: SavedPlan[] };
-      setPlans(data.plans);
-      if (!planId && data.plans[0]) setPlanId(data.plans[0].id);
+      const data = (await res.json()) as { tickets: ReadyTicket[] };
+      setTickets(data.tickets);
+      if (!activeTicketId && data.tickets[0]) setActiveTicketId(data.tickets[0].id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [planId]);
+  }, [activeTicketId]);
 
   useEffect(() => {
-    loadPlans();
-  }, [loadPlans]);
+    void loadTickets();
+  }, [loadTickets]);
 
-  const activePlan = useMemo(
-    () => plans.find((p) => p.id === planId) ?? null,
-    [plans, planId],
-  );
-
-  useEffect(() => {
-    if (thinkingRef.current) {
-      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
-    }
-  }, [steps, focusedStep]);
-
-  const focusedStepData = useMemo(() => {
-    if (focusedStep === null) return null;
-    return steps.find((s) => s.step === focusedStep) ?? null;
-  }, [steps, focusedStep]);
-
-  async function run() {
-    if (!activePlan) return;
-    setRunning(true);
-    setError(null);
-    setDuration(null);
-    setPrs([]);
-    setSteps(
-      activePlan.plan.plan.map((s) => ({
-        step: s.step,
-        repo: s.repo,
-        file: s.file,
-        action: s.action,
-        status: "pending" as const,
-        attempts: 0,
-        thinking: "",
-        interceptions: [],
-      })),
-    );
-    setFocusedStep(activePlan.plan.plan[0]?.step ?? null);
-
+  const loadDiff = useCallback(async (ticketId: string, repo: string) => {
+    setDiffLoading(true);
     try {
-      const res = await fetch("/api/ship", {
+      const res = await fetch(
+        `/api/ship/diff?ticket_id=${encodeURIComponent(ticketId)}&repo=${encodeURIComponent(repo)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setDiffByRepo((prev) => ({
+        ...prev,
+        [repo]: {
+          files: data.files ?? [],
+          base: data.base ?? "main",
+          branch: data.branch ?? "",
+        },
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDiffByRepo((prev) => ({ ...prev, [repo]: null }));
+    } finally {
+      setDiffLoading(false);
+    }
+  }, []);
+
+  // Load full ticket + plan + diff whenever active ticket changes.
+  useEffect(() => {
+    setActiveTicket(null);
+    setPlan(null);
+    setDiffByRepo({});
+    setChecksByRepo({});
+    setChecksRunning({});
+    setPreviewByRepo({});
+    setPreviewBusy({});
+    setError(null);
+    if (!activeTicketId) return;
+    const ticketId = activeTicketId;
+    void (async () => {
+      try {
+        const [ticketRes, plansRes] = await Promise.all([
+          fetch(`/api/converse/tickets/${encodeURIComponent(ticketId)}`, {
+            cache: "no-store",
+          }),
+          fetch("/api/plans", { cache: "no-store" }),
+        ]);
+        if (ticketRes.ok) {
+          const data = (await ticketRes.json()) as { ticket: FullTicket };
+          setActiveTicket(data.ticket ?? null);
+        }
+        if (plansRes.ok) {
+          const summary = tickets.find((t) => t.id === ticketId);
+          const plansData = (await plansRes.json()) as { plans: SavedPlan[] };
+          const found = plansData.plans.find((p) => p.id === summary?.plan_id) ?? null;
+          setPlan(found);
+          if (found) {
+            for (const repo of found.classification.repos_touched) {
+              void loadDiff(ticketId, repo);
+            }
+          }
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, [activeTicketId, tickets, loadDiff]);
+
+  async function runChecks(repo: string) {
+    setChecksRunning((prev) => ({ ...prev, [repo]: true }));
+    setChecksByRepo((prev) => ({
+      ...prev,
+      [repo]: ["typecheck", "lint"].map((s) => ({
+        script: s,
+        status: "running",
+        output: "",
+      })),
+    }));
+    try {
+      const res = await fetch("/api/ship/checks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo }),
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      await consumeSse(res.body, (raw) => {
+        try {
+          const ev = JSON.parse(raw) as
+            | { type: "check-start"; script: string }
+            | { type: "check-output"; script: string; chunk: string }
+            | {
+                type: "check-done";
+                script: string;
+                status: "ok" | "fail" | "skipped";
+                duration_ms: number;
+              }
+            | { type: "done" }
+            | { type: "error"; message: string };
+          if (ev.type === "error") {
+            setError(ev.message);
+            return;
+          }
+          if (ev.type === "done") return;
+          setChecksByRepo((prev) => {
+            const cur = [...(prev[repo] ?? [])];
+            const idx = cur.findIndex((c) => c.script === ev.script);
+            if (ev.type === "check-start") {
+              if (idx >= 0) cur[idx] = { ...cur[idx], status: "running", output: "" };
+              else cur.push({ script: ev.script, status: "running", output: "" });
+            } else if (ev.type === "check-output") {
+              if (idx >= 0) cur[idx] = { ...cur[idx], output: cur[idx].output + ev.chunk };
+              else cur.push({ script: ev.script, status: "running", output: ev.chunk });
+            } else if (ev.type === "check-done") {
+              if (idx >= 0)
+                cur[idx] = {
+                  ...cur[idx],
+                  status: ev.status === "skipped" ? "skipped" : ev.status,
+                  duration_ms: ev.duration_ms,
+                };
+            }
+            return { ...prev, [repo]: cur };
+          });
+        } catch {
+          // ignore
+        }
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChecksRunning((prev) => ({ ...prev, [repo]: false }));
+    }
+  }
+
+  const previewControllers = useRef<Record<string, AbortController | null>>({});
+
+  async function startPreview(repo: string) {
+    if (!activeTicketId) return;
+    setPreviewBusy((prev) => ({ ...prev, [repo]: true }));
+    setPreviewByRepo((prev) => ({
+      ...prev,
+      [repo]: {
+        repo,
+        status: "starting",
+        output: prev[repo]?.output ?? "",
+      },
+    }));
+    const ctrl = new AbortController();
+    previewControllers.current[repo] = ctrl;
+    try {
+      const res = await fetch("/api/preview/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_id: activeTicketId, repo }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      await consumeSse(res.body, (raw) => {
+        try {
+          const ev = JSON.parse(raw) as
+            | { type: "status"; status: PreviewLine["status"] }
+            | { type: "log"; chunk: string }
+            | { type: "ready"; port: number; url: string }
+            | { type: "failed"; reason: string };
+          setPreviewByRepo((prev) => {
+            const cur = prev[repo] ?? { repo, status: "starting", output: "" };
+            if (ev.type === "status") {
+              return { ...prev, [repo]: { ...cur, status: ev.status } };
+            }
+            if (ev.type === "log") {
+              return { ...prev, [repo]: { ...cur, output: cur.output + ev.chunk } };
+            }
+            if (ev.type === "ready") {
+              return {
+                ...prev,
+                [repo]: { ...cur, status: "ready", port: ev.port, url: ev.url },
+              };
+            }
+            if (ev.type === "failed") {
+              return {
+                ...prev,
+                [repo]: { ...cur, status: "failed", reason: ev.reason },
+              };
+            }
+            return prev;
+          });
+        } catch {
+          // ignore
+        }
+      });
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      setPreviewBusy((prev) => ({ ...prev, [repo]: false }));
+      previewControllers.current[repo] = null;
+    }
+  }
+
+  async function stopPreview(repo: string) {
+    if (!activeTicketId) return;
+    setPreviewBusy((prev) => ({ ...prev, [repo]: true }));
+    try {
+      previewControllers.current[repo]?.abort();
+      await fetch("/api/preview/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_id: activeTicketId, repo }),
+      });
+      setPreviewByRepo((prev) => ({
+        ...prev,
+        [repo]: prev[repo]
+          ? { ...prev[repo], status: "stopped", url: undefined, port: undefined }
+          : { repo, status: "stopped", output: "" },
+      }));
+    } finally {
+      setPreviewBusy((prev) => ({ ...prev, [repo]: false }));
+    }
+  }
+
+  async function approve() {
+    if (!activeTicketId || !activeTicket) return;
+    if (!window.confirm("Mark all draft PRs as ready for review?")) return;
+    setApproving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ship/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_id: activeTicketId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const failed = (data.results as ApproveResult[]).filter(
+        (r) => !r.marked_ready,
+      );
+      if (failed.length > 0) {
+        setError(
+          `partial: ${failed.length} PR${failed.length === 1 ? "" : "s"} could not be marked ready (${failed
+            .map((f) => f.reason ?? "unknown")
+            .join(" · ")})`,
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApproving(false);
+      void loadTickets();
+      // Reload active ticket so the labels/prs reflect the new state.
+      if (activeTicketId) {
+        const cur = activeTicketId;
+        void fetch(`/api/converse/tickets/${encodeURIComponent(cur)}`, {
+          cache: "no-store",
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => d && setActiveTicket(d.ticket ?? null))
+          .catch(() => null);
+      }
+    }
+  }
+
+  async function discard() {
+    if (!activeTicketId) return;
+    if (
+      !window.confirm(
+        "Discard everything? This closes the PR(s), deletes the feature branch, and resets the ticket back to drafted.",
+      )
+    )
+      return;
+    setDiscarding(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ship/discard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_id: activeTicketId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        setError(
+          `discard partial: ${data.errors.map((e: { repo: string; message: string }) => `${e.repo}: ${e.message}`).join(" · ")}`,
+        );
+      }
+      setDiffByRepo({});
+      setChecksByRepo({});
+      setPreviewByRepo({});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDiscarding(false);
+      void loadTickets();
+    }
+  }
+
+  function openAdjust(repo: string) {
+    setAdjustRepo(repo);
+    setAdjustInstruction("");
+    setAdjustEvents([]);
+    setAdjustModalOpen(true);
+  }
+
+  async function runAdjust() {
+    if (!activeTicketId || !adjustRepo || !adjustInstruction.trim()) return;
+    setAdjustRunning(true);
+    setAdjustEvents([]);
+    try {
+      const res = await fetch("/api/ship/adjust", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan_id: activePlan.id,
-          force_simulated_prs: forceSim,
-          demo_loosen_first_attempt: demoLoosen,
+          ticket_id: activeTicketId,
+          repo: adjustRepo,
+          instruction: adjustInstruction.trim(),
         }),
       });
       if (!res.ok || !res.body) {
         const text = await res.text().catch(() => "");
         throw new Error(`HTTP ${res.status}: ${text || "no body"}`);
       }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let sep: number;
-        while ((sep = buf.indexOf("\n\n")) !== -1) {
-          const raw = buf.slice(0, sep);
-          buf = buf.slice(sep + 2);
-          for (const line of raw.split("\n")) {
-            if (!line.startsWith("data: ")) continue;
-            try {
-              const ev = JSON.parse(line.slice(6)) as ShipEvent;
-              handle(ev);
-            } catch {
-              // ignore malformed
-            }
-          }
+      await consumeSse(res.body, (raw) => {
+        try {
+          const ev = JSON.parse(raw) as AdjustEvent;
+          setAdjustEvents((prev) => [...prev, ev]);
+        } catch {
+          // ignore
         }
+      });
+      // Refresh diff so user sees the new commits.
+      if (activeTicketId) await loadDiff(activeTicketId, adjustRepo);
+      // Refresh ticket so the adjustments list updates.
+      const r = await fetch(
+        `/api/converse/tickets/${encodeURIComponent(activeTicketId)}`,
+        { cache: "no-store" },
+      );
+      if (r.ok) {
+        const d = await r.json();
+        setActiveTicket(d.ticket ?? null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setRunning(false);
+      setAdjustRunning(false);
     }
   }
 
-  function handle(ev: ShipEvent) {
-    setSteps((prev) => {
-      if (ev.type === "step-start") {
-        setFocusedStep(ev.step);
-        return prev.map((s) =>
-          s.step === ev.step ? { ...s, status: "running" } : s,
-        );
-      }
-      if (ev.type === "thinking") {
-        return prev.map((s) =>
-          s.step === ev.step ? { ...s, thinking: s.thinking + ev.delta } : s,
-        );
-      }
-      if (ev.type === "skill-intercept") {
-        return prev.map((s) =>
-          s.step === ev.step
-            ? {
-                ...s,
-                status: "intercepted",
-                interceptions: [
-                  ...s.interceptions,
-                  {
-                    skill_id: ev.skill_id,
-                    title: ev.title,
-                    message: ev.message,
-                    fix_hint: ev.fix_hint,
-                    resolved: false,
-                  },
-                ],
-              }
-            : s,
-        );
-      }
-      if (ev.type === "skill-pass") {
-        return prev.map((s) =>
-          s.step === ev.step
-            ? {
-                ...s,
-                interceptions: s.interceptions.map((i) => ({
-                  ...i,
-                  resolved: true,
-                })),
-              }
-            : s,
-        );
-      }
-      if (ev.type === "commit") {
-        return prev.map((s) =>
-          s.step === ev.step
-            ? {
-                ...s,
-                status: "committed",
-                commit_sha: ev.sha,
-                commit_message: ev.message,
-              }
-            : s,
-        );
-      }
-      if (ev.type === "step-done") {
-        return prev.map((s) =>
-          s.step === ev.step ? { ...s, attempts: ev.attempts } : s,
-        );
-      }
-      if (ev.type === "error" && ev.step) {
-        return prev.map((s) =>
-          s.step === ev.step ? { ...s, status: "failed", error: ev.message } : s,
-        );
-      }
-      return prev;
-    });
+  // Sidebar repos mirror the plan's touched repos so the global Sidebar
+  // shows the right scope on Ship.
+  const sidebarRepos: SidebarRepo[] = (plan?.classification.repos_touched ?? []).map(
+    (r) => ({
+      name: r,
+      branch: plan?.classification.target_branch ?? "main",
+      changes: "for review",
+    }),
+  );
 
-    if (ev.type === "pr-opened") {
-      setPrs((p) => [
-        ...p,
-        {
-          repo: ev.repo,
-          url: ev.url,
-          simulated: ev.simulated,
-          pushed: ev.pushed,
-          number: ev.number,
-          push_reason: ev.push_reason,
-        },
-      ]);
-    } else if (ev.type === "done") {
-      setDuration(ev.duration_ms);
-    } else if (ev.type === "error" && !ev.step) {
-      setError(ev.message);
-    }
-  }
+  const repos = plan?.classification.repos_touched ?? [];
+
+  const ticketCardSummaries: TicketReadySummary[] = tickets.map((t) => {
+    const tplan = t.id === activeTicketId && plan ? plan : null;
+    return {
+      id: t.id,
+      title: t.title,
+      branch: tplan?.classification.target_branch ?? "—",
+      reposTouched: tplan?.classification.repos_touched ?? [],
+      steps: tplan ? planSteps(tplan.plan).length : 0,
+      status: "pending_review" as const,
+    };
+  });
+
+  const adjustThinking = useMemo(
+    () =>
+      adjustEvents
+        .filter((e): e is AdjustEvent & { type: "thinking" } => e.type === "thinking")
+        .map((e) => e.delta)
+        .join(""),
+    [adjustEvents],
+  );
+  const adjustCommits = useMemo(
+    () =>
+      adjustEvents.filter(
+        (e): e is AdjustEvent & { type: "commit" } => e.type === "commit",
+      ),
+    [adjustEvents],
+  );
+  const adjustEditedFiles = useMemo(
+    () =>
+      adjustEvents.filter(
+        (e): e is AdjustEvent & { type: "edit-ready" } => e.type === "edit-ready",
+      ),
+    [adjustEvents],
+  );
+  const adjustError = useMemo(
+    () =>
+      adjustEvents.find(
+        (e): e is AdjustEvent & { type: "error" } => e.type === "error",
+      ),
+    [adjustEvents],
+  );
+  const adjustDone = useMemo(
+    () => adjustEvents.some((e) => e.type === "done"),
+    [adjustEvents],
+  );
+
+  const isApproved = !!activeTicket?.labels?.includes("approved");
 
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col">
-      <header className="flex items-baseline justify-between gap-4 border-b border-border px-6 py-4">
-        <div className="flex items-baseline gap-3">
-          <Link
-            href="/"
-            className="text-xs font-mono text-muted-foreground hover:text-accent"
-          >
-            mesh
-          </Link>
-          <span className="text-muted-foreground">/</span>
-          <h1 className="text-xl font-mono">ship</h1>
-          <span className="text-xs font-mono text-muted-foreground">
-            plan → commits → PRs
-          </span>
-        </div>
-        <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
-          {duration !== null && <span>duration: {duration}ms</span>}
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={demoLoosen}
-              onChange={(e) => setDemoLoosen(e.target.checked)}
-            />
-            loosen 1st attempt
-          </label>
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={forceSim}
-              onChange={(e) => setForceSim(e.target.checked)}
-            />
-            simulated PRs
-          </label>
-        </div>
-      </header>
-
+    <AppShell
+      title="Ship"
+      subtitle="validate · adjust · mark ready"
+      repos={sidebarRepos}
+    >
       {error && (
-        <div className="mx-6 mt-4 rounded-md border border-destructive bg-destructive/10 text-destructive p-3 font-mono text-xs">
-          {error}
+        <div
+          className="font-mono"
+          style={{
+            margin: "12px 24px 0",
+            padding: 10,
+            borderRadius: 6,
+            border: "1px solid rgba(229,72,77,0.3)",
+            background: "rgba(229,72,77,0.06)",
+            color: MESH.red,
+            fontSize: 12,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span style={{ flex: 1, wordBreak: "break-word" }}>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="font-mono"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: MESH.red,
+              cursor: "pointer",
+              fontSize: 14,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
         </div>
       )}
 
-      <section className="px-6 py-3 border-b border-border flex gap-3 items-center">
-        <select
-          value={planId}
-          onChange={(e) => setPlanId(e.target.value)}
-          disabled={running}
-          className="flex-1 bg-muted/50 rounded-md border border-border p-2 font-mono text-xs"
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "grid",
+          gridTemplateColumns: "300px 1fr",
+        }}
+      >
+        <aside
+          style={{
+            borderRight: `1px solid ${MESH.border}`,
+            padding: "14px 14px 24px",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            background: MESH.bg,
+          }}
         >
-          {plans.length === 0 ? (
-            <option value="">no plans — approve one in /converse</option>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "0 4px 6px",
+            }}
+          >
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 10,
+                color: MESH.fgMute,
+                textTransform: "uppercase",
+                letterSpacing: "0.14em",
+              }}
+            >
+              For review · {ticketCardSummaries.length}
+            </span>
+            <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              onClick={loadTickets}
+              className="font-mono"
+              style={{
+                fontSize: 10,
+                color: MESH.fgMute,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              refresh
+            </button>
+          </div>
+          {ticketCardSummaries.length === 0 ? (
+            <p
+              className="font-mono"
+              style={{
+                fontSize: 11,
+                color: MESH.fgMute,
+                padding: "16px 8px",
+                lineHeight: 1.5,
+              }}
+            >
+              no tickets in for review. open Build, draft a ticket, approve a plan, and proceed to ship.
+            </p>
           ) : (
-            plans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.classification.target_branch} · {p.classification.summary.slice(0, 60)}
-              </option>
+            ticketCardSummaries.map((t) => (
+              <TicketReadyCard
+                key={t.id}
+                ticket={t}
+                selected={t.id === activeTicketId}
+                onSelect={setActiveTicketId}
+              />
             ))
           )}
-        </select>
-        <button
-          onClick={run}
-          disabled={running || !activePlan}
-          className="px-4 py-2 rounded-md border border-accent bg-accent text-accent-foreground font-mono text-xs hover:opacity-90 disabled:opacity-50"
-        >
-          {running ? "shipping" : "ship this plan"}
-        </button>
-        <button
-          onClick={loadPlans}
-          className="px-3 py-2 rounded-md border border-border text-[10px] font-mono text-muted-foreground hover:border-accent hover:text-accent"
-        >
-          refresh plans
-        </button>
-      </section>
-
-      <section className="flex-1 grid grid-cols-[260px_1fr_300px] gap-0 min-h-0">
-        <aside className="border-r border-border p-4 flex flex-col gap-3 overflow-auto">
-          <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-            Steps
-          </h2>
-          {steps.length === 0 ? (
-            <p className="text-xs text-muted-foreground font-mono">
-              click ship to begin
-            </p>
-          ) : (
-            <ol className="flex flex-col gap-2">
-              {steps.map((s) => (
-                <li key={s.step}>
-                  <button
-                    onClick={() => setFocusedStep(s.step)}
-                    className={`w-full text-left rounded-md border px-2 py-1.5 transition-colors ${
-                      focusedStep === s.step
-                        ? "border-accent bg-accent/10"
-                        : s.status === "intercepted"
-                          ? "border-accent/70 bg-accent/5"
-                          : s.status === "committed"
-                            ? "border-foreground/40"
-                            : s.status === "failed"
-                              ? "border-destructive"
-                              : "border-border"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs truncate">
-                        <span className="text-muted-foreground">#{s.step}</span>{" "}
-                        <span className="text-accent">{s.repo}</span>
-                      </span>
-                      <span
-                        className={`text-[9px] uppercase font-mono ${
-                          s.status === "committed"
-                            ? "text-foreground/60"
-                            : s.status === "intercepted"
-                              ? "text-accent"
-                              : s.status === "failed"
-                                ? "text-destructive"
-                                : s.status === "running"
-                                  ? "text-accent"
-                                  : "text-muted-foreground"
-                        }`}
-                      >
-                        {s.status}
-                      </span>
-                    </div>
-                    <p className="text-[10px] font-mono text-muted-foreground truncate">
-                      {s.file}
-                    </p>
-                    {s.interceptions.length > 0 && (
-                      <p className="text-[9px] font-mono text-accent mt-1">
-                        {s.interceptions.length} skill fire
-                        {s.interceptions.length > 1 ? "s" : ""}
-                        {s.interceptions.every((i) => i.resolved)
-                          ? " (resolved)"
-                          : ""}
-                      </p>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          )}
         </aside>
 
-        <div className="flex flex-col min-h-0">
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-              Thinking
-              {focusedStepData && (
-                <span className="ml-2 text-[10px] normal-case tracking-normal text-muted-foreground">
-                  step {focusedStepData.step} · {focusedStepData.repo}:
-                  {focusedStepData.file}
-                </span>
-              )}
-            </h2>
-            <span className="text-xs font-mono text-muted-foreground">
-              {focusedStepData?.thinking.length.toLocaleString() ?? 0} chars
-            </span>
-          </div>
-          <pre
-            ref={thinkingRef}
-            className="flex-1 mx-4 mb-4 rounded-md border border-border bg-zinc-950 p-4 font-mono text-sm text-foreground/90 overflow-auto whitespace-pre-wrap break-words min-h-0"
-          >
-            {focusedStepData?.thinking || (
-              <span className="text-muted-foreground">
-                {running
-                  ? "— waiting for first token —"
-                  : "— pick a step to watch its reasoning —"}
-              </span>
-            )}
-          </pre>
+        <div
+          style={{
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            background: MESH.bg,
+          }}
+        >
+          {!activeTicketId || !activeTicket ? (
+            <EmptyState />
+          ) : (
+            <Workspace
+              ticket={activeTicket}
+              repos={repos}
+              diffByRepo={diffByRepo}
+              diffLoading={diffLoading}
+              onReloadDiff={(repo) =>
+                activeTicketId && void loadDiff(activeTicketId, repo)
+              }
+              checksByRepo={checksByRepo}
+              checksRunning={checksRunning}
+              onRunChecks={runChecks}
+              previewByRepo={previewByRepo}
+              previewBusy={previewBusy}
+              onStartPreview={startPreview}
+              onStopPreview={stopPreview}
+              onApprove={approve}
+              onDiscard={discard}
+              onAdjust={openAdjust}
+              approving={approving}
+              discarding={discarding}
+              isApproved={isApproved}
+            />
+          )}
+        </div>
+      </div>
 
-          {focusedStepData?.interceptions.map((i, idx) => (
-            <div
-              key={`${focusedStepData.step}-${idx}`}
-              className={`mx-4 mb-3 rounded-md border p-3 ${
-                i.resolved
-                  ? "border-foreground/30 bg-muted/30"
-                  : "border-accent bg-accent/10"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-mono text-accent">
-                  skill fired · {i.skill_id}
-                </span>
-                <span className="text-[10px] uppercase font-mono text-muted-foreground">
-                  {i.resolved ? "resolved" : "active"}
-                </span>
-              </div>
-              <p className="text-xs mt-1">{i.message}</p>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                fix: {i.fix_hint}
-              </p>
-            </div>
+      {adjustModalOpen && (
+        <AdjustModal
+          repo={adjustRepo}
+          instruction={adjustInstruction}
+          onInstructionChange={setAdjustInstruction}
+          running={adjustRunning}
+          done={adjustDone}
+          thinking={adjustThinking}
+          commits={adjustCommits}
+          editedFiles={adjustEditedFiles}
+          error={adjustError}
+          onSubmit={runAdjust}
+          onClose={() => {
+            if (adjustRunning) return;
+            setAdjustModalOpen(false);
+          }}
+        />
+      )}
+    </AppShell>
+  );
+}
+
+function planSteps(p: SavedPlan["plan"]): { step: number }[] {
+  if (p?.schema_version === "2") {
+    return [...(p.tests ?? []), ...(p.implementation ?? [])];
+  }
+  return p?.plan ?? [];
+}
+
+async function consumeSse(
+  body: ReadableStream<Uint8Array>,
+  onMessage: (raw: string) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buf.indexOf("\n\n")) !== -1) {
+      const raw = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+      for (const line of raw.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        onMessage(line.slice(6));
+      }
+    }
+  }
+}
+
+function EmptyState() {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <span
+        className="font-mono"
+        style={{ fontSize: 12, color: MESH.fgDim, fontWeight: 500 }}
+      >
+        select a ticket on the left
+      </span>
+      <span
+        className="font-mono"
+        style={{
+          fontSize: 11,
+          color: MESH.fgMute,
+          maxWidth: 380,
+          textAlign: "center",
+          lineHeight: 1.55,
+        }}
+      >
+        Ship operates on tickets that have moved to <b style={{ color: MESH.fgDim }}>for review</b>:
+        Claude has staged commits to the feature branch and opened the draft PR. Validate the diff,
+        run checks + preview, optionally adjust, and mark the PR ready when you&apos;re satisfied.
+      </span>
+    </div>
+  );
+}
+
+function Workspace({
+  ticket,
+  repos,
+  diffByRepo,
+  diffLoading,
+  onReloadDiff,
+  checksByRepo,
+  checksRunning,
+  onRunChecks,
+  previewByRepo,
+  previewBusy,
+  onStartPreview,
+  onStopPreview,
+  onApprove,
+  onDiscard,
+  onAdjust,
+  approving,
+  discarding,
+  isApproved,
+}: {
+  ticket: FullTicket;
+  repos: string[];
+  diffByRepo: Record<string, { files: DiffFileView[]; base: string; branch: string } | null>;
+  diffLoading: boolean;
+  onReloadDiff: (repo: string) => void;
+  checksByRepo: Record<string, CheckLine[]>;
+  checksRunning: Record<string, boolean>;
+  onRunChecks: (repo: string) => void;
+  previewByRepo: Record<string, PreviewLine>;
+  previewBusy: Record<string, boolean>;
+  onStartPreview: (repo: string) => void;
+  onStopPreview: (repo: string) => void;
+  onApprove: () => void;
+  onDiscard: () => void;
+  onAdjust: (repo: string) => void;
+  approving: boolean;
+  discarding: boolean;
+  isApproved: boolean;
+}) {
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(repos[0] ?? null);
+  useEffect(() => {
+    if (!selectedRepo && repos[0]) setSelectedRepo(repos[0]);
+  }, [repos, selectedRepo]);
+  const activeRepo = selectedRepo ?? repos[0];
+  const diff = activeRepo ? diffByRepo[activeRepo] : null;
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: "20px 24px 28px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 18,
+      }}
+    >
+      <PrSummary ticket={ticket} isApproved={isApproved} />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {repos.map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => setSelectedRepo(r)}
+            className="font-mono"
+            style={{
+              padding: "6px 12px",
+              borderRadius: 5,
+              border: `1px solid ${activeRepo === r ? MESH.amber : MESH.border}`,
+              background: activeRepo === r ? "rgba(245,165,36,0.08)" : MESH.bgElev,
+              color: activeRepo === r ? MESH.amber : MESH.fgDim,
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+          >
+            {r}
+          </button>
+        ))}
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          onClick={onDiscard}
+          disabled={discarding || approving}
+          className="font-mono"
+          style={{
+            padding: "8px 12px",
+            borderRadius: 6,
+            border: `1px solid ${MESH.border}`,
+            background: "transparent",
+            color: MESH.red,
+            fontSize: 12,
+            cursor: discarding || approving ? "default" : "pointer",
+          }}
+        >
+          {discarding ? "discarding…" : "discard"}
+        </button>
+        <button
+          type="button"
+          onClick={() => activeRepo && onAdjust(activeRepo)}
+          disabled={!activeRepo || approving || discarding}
+          className="font-mono"
+          style={{
+            padding: "8px 12px",
+            borderRadius: 6,
+            border: `1px solid ${MESH.amber}`,
+            background: "transparent",
+            color: MESH.amber,
+            fontSize: 12,
+            cursor: !activeRepo || approving || discarding ? "default" : "pointer",
+          }}
+        >
+          adjust
+        </button>
+        <button
+          type="button"
+          onClick={onApprove}
+          disabled={approving || discarding || isApproved}
+          className="font-mono"
+          style={{
+            padding: "8px 14px",
+            borderRadius: 6,
+            border: `1px solid ${MESH.green}`,
+            background:
+              approving || discarding || isApproved
+                ? "transparent"
+                : "rgba(48,164,108,0.18)",
+            color: MESH.green,
+            fontSize: 12,
+            fontWeight: 500,
+            cursor:
+              approving || discarding || isApproved ? "default" : "pointer",
+          }}
+        >
+          {isApproved
+            ? "marked ready"
+            : approving
+              ? "marking ready…"
+              : "approve & mark ready"}
+        </button>
+      </div>
+
+      <Section
+        label="Diff"
+        sub={`compare ${diff?.branch ?? activeRepo} vs ${diff?.base ?? "base"}`}
+        right={
+          <button
+            type="button"
+            onClick={() => activeRepo && onReloadDiff(activeRepo)}
+            disabled={diffLoading || !activeRepo}
+            className="font-mono"
+            style={{
+              fontSize: 10,
+              color: MESH.fgMute,
+              background: "transparent",
+              border: "none",
+              cursor: diffLoading || !activeRepo ? "default" : "pointer",
+              padding: 0,
+            }}
+          >
+            {diffLoading ? "loading…" : "refresh"}
+          </button>
+        }
+      >
+        {!activeRepo ? (
+          <p className="font-mono" style={{ fontSize: 11, color: MESH.fgMute }}>
+            no repo selected
+          </p>
+        ) : diff === undefined ? (
+          <p className="font-mono" style={{ fontSize: 11, color: MESH.fgMute }}>
+            loading diff…
+          </p>
+        ) : diff === null ? (
+          <p className="font-mono" style={{ fontSize: 11, color: MESH.fgMute }}>
+            failed to load diff — click refresh
+          </p>
+        ) : (
+          <DiffViewer files={diff.files} base={diff.base} branch={diff.branch} />
+        )}
+      </Section>
+
+      <Section label="Checks" sub="typecheck + lint per repo">
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {repos.map((r) => (
+            <ChecksCard
+              key={r}
+              repo={r}
+              lines={checksByRepo[r] ?? []}
+              running={!!checksRunning[r]}
+              onRun={() => onRunChecks(r)}
+            />
           ))}
         </div>
+      </Section>
 
-        <aside className="border-l border-border p-4 flex flex-col gap-3 overflow-auto">
-          <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-            Pull Requests
-          </h2>
-          {prs.length === 0 ? (
-            <p className="text-xs text-muted-foreground font-mono">
-              PRs open after all steps commit
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {prs.map((pr) => (
-                <li
-                  key={pr.url}
-                  className="rounded-md border border-border p-3 flex flex-col gap-1"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-accent">
-                      {pr.repo}
-                    </span>
-                    <span
-                      className={`text-[9px] uppercase font-mono ${
-                        pr.simulated
-                          ? "text-muted-foreground"
-                          : "text-foreground"
-                      }`}
-                    >
-                      {pr.simulated ? "simulated" : "live"}
-                      {pr.number !== undefined && ` · #${pr.number}`}
-                    </span>
-                  </div>
-                  <a
-                    href={pr.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[11px] font-mono break-all hover:text-accent"
-                  >
-                    {pr.url}
-                  </a>
-                  <p className="text-[10px] text-muted-foreground">
-                    {pr.pushed ? "pushed to remote" : "local commits only"}
-                    {pr.push_reason ? ` · ${pr.push_reason}` : ""}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
+      <Section label="Preview" sub="dev server with this repo's env vars">
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {repos.map((r) => {
+            const line: PreviewLine = previewByRepo[r] ?? {
+              repo: r,
+              status: "idle",
+              output: "",
+            };
+            return (
+              <PreviewServerCard
+                key={r}
+                line={line}
+                busy={!!previewBusy[r]}
+                onStart={() => onStartPreview(r)}
+                onStop={() => onStopPreview(r)}
+              />
+            );
+          })}
+        </div>
+      </Section>
 
-          <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground mt-4">
-            Build status
-          </h2>
-          <ul className="flex flex-col gap-1">
-            {(activePlan?.classification.repos_touched ?? []).map((r) => {
-              const hasCommit = steps.some(
-                (s) => s.repo === r && s.status === "committed",
-              );
-              return (
-                <li
-                  key={r}
-                  className="rounded-md border border-border px-2 py-1 flex items-center justify-between"
+      {ticket.adjustments.length > 0 && (
+        <Section
+          label="Adjustments"
+          sub={`${ticket.adjustments.length} addendum${ticket.adjustments.length === 1 ? "" : "s"}`}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {ticket.adjustments
+              .slice()
+              .reverse()
+              .map((a, i) => (
+                <div
+                  key={`${a.at}-${i}`}
+                  style={{
+                    padding: "8px 10px",
+                    background: MESH.bgElev,
+                    border: `1px solid ${MESH.border}`,
+                    borderRadius: 5,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
                 >
-                  <span className="text-xs font-mono">{r}</span>
                   <span
-                    className={`text-[9px] uppercase font-mono ${
-                      hasCommit ? "text-foreground/80" : "text-muted-foreground"
-                    }`}
+                    className="font-mono"
+                    style={{
+                      fontSize: 10,
+                      color: MESH.fgMute,
+                      letterSpacing: "0.04em",
+                    }}
                   >
-                    {hasCommit ? "built" : "idle"}
+                    {new Date(a.at).toLocaleString()}
                   </span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-[10px] font-mono text-muted-foreground">
-            preview reserved for flarebill-web — see ROADMAP Day 3 scope-cut.
-          </p>
-        </aside>
-      </section>
-    </main>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: MESH.fg,
+                      lineHeight: 1.5,
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {a.instruction}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function PrSummary({
+  ticket,
+  isApproved,
+}: {
+  ticket: FullTicket;
+  isApproved: boolean;
+}) {
+  if (ticket.prs.length === 0) {
+    return (
+      <div
+        className="font-mono"
+        style={{
+          fontSize: 11,
+          color: MESH.fgMute,
+          padding: 12,
+          border: `1px dashed ${MESH.border}`,
+          borderRadius: 6,
+        }}
+      >
+        no PRs attached yet — once Generate finishes you&apos;ll see draft PR(s) here.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span
+        className="font-mono"
+        style={{
+          fontSize: 10,
+          color: MESH.fgMute,
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+        }}
+      >
+        Pull requests · {ticket.prs.length}
+      </span>
+      {ticket.prs.map((pr) => (
+        <div
+          key={pr.url}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "8px 10px",
+            background: MESH.bgElev,
+            border: `1px solid ${pr.simulated ? MESH.border : "rgba(48,164,108,0.25)"}`,
+            borderRadius: 5,
+          }}
+        >
+          <NavIcon
+            kind="pr"
+            color={pr.simulated ? MESH.fgDim : isApproved ? MESH.green : MESH.amber}
+            size={12}
+          />
+          <span
+            className="font-mono"
+            style={{ fontSize: 11.5, color: MESH.fg, fontWeight: 500 }}
+          >
+            {pr.repo}
+          </span>
+          <Pill tone={pr.simulated ? "default" : isApproved ? "green" : "amber"}>
+            {pr.simulated
+              ? "simulated"
+              : isApproved
+                ? "ready"
+                : "draft"}
+            {pr.number !== undefined ? ` · #${pr.number}` : ""}
+          </Pill>
+          <a
+            href={pr.url}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono"
+            style={{
+              fontSize: 11,
+              color: MESH.amber,
+              textDecoration: "underline",
+              wordBreak: "break-all",
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {pr.url}
+          </a>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Section({
+  label,
+  sub,
+  right,
+  children,
+}: {
+  label: string;
+  sub?: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 10,
+            color: MESH.fgMute,
+            textTransform: "uppercase",
+            letterSpacing: "0.14em",
+          }}
+        >
+          {label}
+        </span>
+        {sub && (
+          <span
+            className="font-mono"
+            style={{ fontSize: 10.5, color: MESH.fgDim }}
+          >
+            {sub}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function AdjustModal({
+  repo,
+  instruction,
+  onInstructionChange,
+  running,
+  done,
+  thinking,
+  commits,
+  editedFiles,
+  error,
+  onSubmit,
+  onClose,
+}: {
+  repo: string;
+  instruction: string;
+  onInstructionChange: (v: string) => void;
+  running: boolean;
+  done: boolean;
+  thinking: string;
+  commits: (AdjustEvent & { type: "commit" })[];
+  editedFiles: (AdjustEvent & { type: "edit-ready" })[];
+  error?: AdjustEvent & { type: "error" };
+  onSubmit: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell
+      open
+      title={`Adjust ${repo}`}
+      meta="addendum commit on existing branch — PR auto-updates"
+      onClose={onClose}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <ModalLabel>Instruction</ModalLabel>
+        <textarea
+          value={instruction}
+          onChange={(e) => onInstructionChange(e.target.value)}
+          disabled={running || done}
+          placeholder="e.g. add a default value to the new env var so the readme example still works"
+          rows={4}
+          className="font-mono"
+          style={{
+            background: MESH.bgInput,
+            color: MESH.fg,
+            border: `1px solid ${MESH.border}`,
+            borderRadius: 6,
+            padding: "10px 12px",
+            fontSize: 12,
+            resize: "vertical",
+            outline: "none",
+          }}
+        />
+
+        {(thinking || commits.length > 0 || editedFiles.length > 0 || error) && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              padding: 12,
+              background: MESH.bgElev,
+              border: `1px solid ${MESH.border}`,
+              borderRadius: 6,
+              maxHeight: 320,
+              overflow: "auto",
+            }}
+          >
+            {thinking && (
+              <pre
+                className="font-mono"
+                style={{
+                  fontSize: 10.5,
+                  color: MESH.fgDim,
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  lineHeight: 1.55,
+                }}
+              >
+                {thinking}
+              </pre>
+            )}
+            {editedFiles.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {editedFiles.map((f) => (
+                  <div
+                    key={f.file}
+                    className="font-mono"
+                    style={{
+                      fontSize: 11,
+                      color: MESH.fg,
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <NavIcon kind="file" color={MESH.fgDim} size={10} />
+                    <span style={{ flex: 1, wordBreak: "break-all" }}>{f.file}</span>
+                    <span style={{ color: MESH.green }}>~{f.additions_estimate} lines</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {commits.map((c) => (
+              <div
+                key={c.sha}
+                className="font-mono"
+                style={{
+                  fontSize: 11,
+                  color: MESH.fg,
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                }}
+              >
+                <Dot color={MESH.green} size={5} />
+                <span style={{ color: MESH.fgMute }}>{c.sha.slice(0, 7)}</span>
+                <span style={{ flex: 1 }}>{c.message}</span>
+              </div>
+            ))}
+            {error && (
+              <div
+                className="font-mono"
+                style={{
+                  fontSize: 11,
+                  color: MESH.red,
+                  padding: "6px 8px",
+                  background: "rgba(229,72,77,0.06)",
+                  borderRadius: 4,
+                }}
+              >
+                {error.message}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}
+        >
+          <SecondaryButton onClick={onClose} disabled={running}>
+            {done ? "close" : "cancel"}
+          </SecondaryButton>
+          <PrimaryButton
+            onClick={onSubmit}
+            disabled={running || done || !instruction.trim()}
+          >
+            {running ? "running…" : done ? "done" : "send to Claude"}
+          </PrimaryButton>
+        </div>
+      </div>
+    </ModalShell>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { AppShell, MESH, Pill } from "@/components/mesh";
 
 type EngineMode = "raw" | "agent";
 
@@ -50,108 +50,215 @@ export default function SettingsPage() {
     }
   }
 
+  const statusLabel = !loaded ? "loading…" : saving ? "saving…" : savedAt ? "saved" : "ready";
+  const statusTone: "amber" | "green" | "dim" = saving
+    ? "amber"
+    : savedAt
+      ? "green"
+      : "dim";
+
   return (
-    <main className="min-h-screen bg-background text-foreground p-6 flex flex-col gap-6 max-w-2xl mx-auto">
-      <header className="flex items-baseline justify-between border-b border-border pb-4">
-        <div className="flex items-baseline gap-3">
-          <Link
-            href="/"
-            className="text-xs font-mono text-muted-foreground hover:text-accent"
-          >
-            mesh
-          </Link>
-          <span className="text-muted-foreground">/</span>
-          <h1 className="text-xl font-mono">settings</h1>
-        </div>
-        <span className="text-xs font-mono text-muted-foreground">
-          {loaded ? (saving ? "saving..." : savedAt ? "saved" : "ready") : "loading..."}
-        </span>
-      </header>
-
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground">
-          Engine
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Mesh runs prompts through one of two execution backends. The raw
-          Anthropic SDK is the default — lower latency and direct access to
-          prompt caching. The Claude Agent SDK adds skills and sessions, at a
-          small overhead cost per call.
-        </p>
-
-        <div className="flex flex-col gap-2">
-          <EngineOption
-            value="raw"
-            selected={mode === "raw"}
-            title="Raw API key (recommended)"
-            subtitle="Uses ANTHROPIC_API_KEY directly via @anthropic-ai/sdk."
-            onSelect={() => save("raw")}
-            disabled={!loaded || saving}
-          />
-          <EngineOption
-            value="agent"
-            selected={mode === "agent"}
-            title="Claude Code"
-            subtitle="Routes through @anthropic-ai/claude-agent-sdk (enables skills)."
-            onSelect={() => save("agent")}
-            disabled={!loaded || saving}
-            hint={
-              claudeCodeDetected
-                ? "Claude Code detected — toggle available"
-                : undefined
-            }
-          />
-        </div>
-
+    <AppShell
+      title="Settings"
+      subtitle="engine, workspace, env"
+      topRight={<Pill tone={statusTone}>{statusLabel}</Pill>}
+    >
+      <div
+        style={{
+          flex: 1,
+          overflow: "auto",
+          padding: "32px 32px 48px",
+          maxWidth: 760,
+          width: "100%",
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 32,
+        }}
+      >
         {error && (
-          <div className="rounded-md border border-destructive bg-destructive/10 text-destructive p-3 font-mono text-xs">
+          <div
+            className="font-mono"
+            style={{
+              padding: 10,
+              borderRadius: 6,
+              border: "1px solid rgba(229,72,77,0.3)",
+              background: "rgba(229,72,77,0.06)",
+              color: MESH.red,
+              fontSize: 12,
+            }}
+          >
             {error}
           </div>
         )}
-      </section>
-    </main>
+
+        <section style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <h2
+              style={{
+                fontSize: 18,
+                fontWeight: 600,
+                letterSpacing: "-0.02em",
+                margin: 0,
+                color: MESH.fg,
+              }}
+            >
+              Engine
+            </h2>
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 11,
+                color: MESH.fgMute,
+                textTransform: "uppercase",
+                letterSpacing: "0.14em",
+              }}
+            >
+              execution backend
+            </span>
+          </div>
+          <p
+            style={{
+              fontSize: 13,
+              color: MESH.fgDim,
+              lineHeight: 1.6,
+              margin: 0,
+            }}
+          >
+            Mesh runs prompts through one of two execution backends. The raw Anthropic SDK is the
+            default — lower latency and direct access to prompt caching. The Claude Agent SDK adds
+            skills and sessions, at a small overhead cost per call.
+          </p>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <OptionCard
+              selected={mode === "raw"}
+              title="Raw API key"
+              caption="Uses ANTHROPIC_API_KEY directly via @anthropic-ai/sdk. Recommended for demo latency."
+              onSelect={() => save("raw")}
+              disabled={!loaded || saving}
+              badge={<Pill tone="dim">default</Pill>}
+            >
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Pill tone="dim">ANTHROPIC_API_KEY</Pill>
+                <Pill tone="dim">@anthropic-ai/sdk</Pill>
+                <Pill tone="amber">prompt caching</Pill>
+              </div>
+            </OptionCard>
+
+            <OptionCard
+              selected={mode === "agent"}
+              title="Claude Code agent"
+              caption="Routes through @anthropic-ai/claude-agent-sdk. Enables skills and sessions at slight overhead."
+              onSelect={() => save("agent")}
+              disabled={!loaded || saving}
+              badge={
+                claudeCodeDetected ? (
+                  <Pill tone="green">detected</Pill>
+                ) : (
+                  <Pill tone="dim">not detected</Pill>
+                )
+              }
+            >
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Pill tone="dim">@anthropic-ai/claude-agent-sdk</Pill>
+                <Pill tone="amber">skills</Pill>
+                <Pill tone="amber">sub-agents</Pill>
+              </div>
+            </OptionCard>
+          </div>
+        </section>
+      </div>
+    </AppShell>
   );
 }
 
-function EngineOption({
+function OptionCard({
   selected,
   title,
-  subtitle,
+  caption,
   onSelect,
   disabled,
-  hint,
+  children,
+  badge,
 }: {
-  value: EngineMode;
   selected: boolean;
   title: string;
-  subtitle: string;
+  caption: string;
   onSelect: () => void;
   disabled: boolean;
-  hint?: string;
+  children?: React.ReactNode;
+  badge?: React.ReactNode;
 }) {
   return (
     <button
       onClick={onSelect}
       disabled={disabled}
-      className={`text-left rounded-md border px-4 py-3 transition-colors ${
-        selected
-          ? "border-accent bg-accent/10"
-          : "border-border hover:border-accent/60"
-      } disabled:opacity-50`}
+      style={{
+        textAlign: "left",
+        padding: "18px 20px",
+        borderRadius: 8,
+        border: `1px solid ${selected ? "rgba(245,165,36,0.35)" : MESH.border}`,
+        background: selected ? "rgba(245,165,36,0.04)" : MESH.bgElev,
+        boxShadow: selected ? "0 0 0 1px rgba(245,165,36,0.08)" : "none",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+        transition: "border-color 150ms, background 150ms",
+      }}
     >
-      <div className="flex items-center justify-between">
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span
-          className={`font-mono text-sm ${selected ? "text-accent" : "text-foreground"}`}
+          aria-hidden
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 999,
+            border: `1.5px solid ${selected ? MESH.amber : MESH.borderHi}`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            boxShadow: selected ? `0 0 6px ${MESH.amber}` : "none",
+          }}
+        >
+          {selected && (
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: MESH.amber,
+              }}
+            />
+          )}
+        </span>
+        <span
+          style={{
+            fontSize: 16,
+            fontWeight: 600,
+            letterSpacing: "-0.01em",
+            color: MESH.fg,
+          }}
         >
           {title}
         </span>
-        {hint && (
-          <span className="text-xs font-mono text-accent/80 bg-accent/10 px-2 py-0.5 rounded">
-            {hint}
-          </span>
-        )}
+        {badge && <span style={{ marginLeft: "auto" }}>{badge}</span>}
       </div>
-      <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+      <p
+        style={{
+          fontSize: 12.5,
+          color: MESH.fgDim,
+          lineHeight: 1.55,
+          margin: 0,
+          paddingLeft: 32,
+        }}
+      >
+        {caption}
+      </p>
+      {children && <div style={{ paddingLeft: 32 }}>{children}</div>}
     </button>
   );
 }
