@@ -19,9 +19,18 @@ Rules:
 - "target_branch" must start with "mesh/" and be short (<= 60 chars total). Kebab-case, no spaces.
 - If you cite invariants/flows in "reasoning", reference them by id (e.g. "touches flow checkout-flow, must respect invariant pricing-single-source").`;
 
-export function buildClassifySystem(memory: Memory): string {
+export function buildClassifySystem(memory: Memory, brain?: string): string {
   const memBlock = compactMemory(memory);
-  return `${INSTRUCTIONS}\n\n---\n\nCROSS-REPO MEMORY (authoritative context):\n\n${memBlock}`;
+  const parts = [
+    INSTRUCTIONS,
+    "---",
+    `CROSS-REPO MEMORY (authoritative context):\n\n${memBlock}`,
+  ];
+  if (brain && brain.trim()) {
+    parts.push("---");
+    parts.push(`PERSONAL BRAIN (user-level context — notes, meetings, tickets, links the user has captured across projects; use to disambiguate intent and respect prior decisions, but never override the cross-repo memory):\n\n${brain}`);
+  }
+  return parts.join("\n\n");
 }
 
 export function buildClassifyUser(ticket: string): string {

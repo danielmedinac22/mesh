@@ -16,7 +16,11 @@ export type IconKind =
   | "search"
   | "file"
   | "pr"
-  | "bolt";
+  | "bolt"
+  | "brain"
+  | "integrations"
+  | "overview"
+  | "projects";
 
 export function NavIcon({
   kind,
@@ -138,6 +142,36 @@ export function NavIcon({
       return (
         <svg viewBox="0 0 16 16" {...s}>
           <path d="M9 2l-4 7h3l-1 5 4-7H8z" />
+        </svg>
+      );
+    case "brain":
+      return (
+        <svg viewBox="0 0 16 16" {...s}>
+          <path d="M5.5 3.5a2 2 0 00-2 2 2 2 0 00-1 3.5 2 2 0 00 1.5 3 2 2 0 003.5 1V4.5a2 2 0 00-2-1zM10.5 3.5a2 2 0 012 2 2 2 0 011 3.5 2 2 0 01-1.5 3 2 2 0 01-3.5 1V4.5a2 2 0 012-1z" />
+          <path d="M8 5v8" />
+        </svg>
+      );
+    case "integrations":
+      return (
+        <svg viewBox="0 0 16 16" {...s}>
+          <rect x="2" y="2" width="5" height="5" rx="1" />
+          <rect x="9" y="9" width="5" height="5" rx="1" />
+          <path d="M7 4.5h2a1 1 0 011 1V9M4.5 7v2a1 1 0 001 1H9" />
+        </svg>
+      );
+    case "overview":
+      return (
+        <svg viewBox="0 0 16 16" {...s}>
+          <rect x="2" y="2" width="5.5" height="5.5" rx="1" />
+          <rect x="8.5" y="2" width="5.5" height="5.5" rx="1" />
+          <rect x="2" y="8.5" width="5.5" height="5.5" rx="1" />
+          <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1" />
+        </svg>
+      );
+    case "projects":
+      return (
+        <svg viewBox="0 0 16 16" {...s}>
+          <path d="M2 4a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1z" />
         </svg>
       );
     default:

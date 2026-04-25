@@ -1,15 +1,34 @@
 {
-  "name": "mesh",
-  "version": "0.0.0",
-  "private": true,
+  "name": "mesh-app",
+  "version": "0.1.0",
   "description": "The living layer over your codebase — tickets in, production-ready PRs out.",
   "license": "MIT",
+  "bin": {
+    "mesh-app": "bin/mesh.mjs"
+  },
+  "files": [
+    "bin",
+    ".next",
+    "app",
+    "lib",
+    "components",
+    "public",
+    "next.config.mjs",
+    "tsconfig.json",
+    "tailwind.config.ts",
+    "postcss.config.js",
+    ".env.example"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "next build"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",
