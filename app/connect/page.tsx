@@ -224,7 +224,7 @@ export default function ConnectPage() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectLabel, setNewProjectLabel] = useState("");
   const [newProjectBusy, setNewProjectBusy] = useState(false);
-  const [mode, setMode] = useState<"overview" | "picker">("overview");
+  const [mode, setMode] = useState<"overview" | "picker" | null>(null);
   const [projectData, setProjectData] = useState<{
     project: ProjectHomeProject;
     repos: (ProjectHomeRepo & { localPath?: string; githubOwner?: string; githubRepo?: string })[];
@@ -902,7 +902,7 @@ export default function ConnectPage() {
       }
     >
       {/* Overview mode: show ProjectHome inline (skip strip + auth + picker) */}
-      {projectLoaded && mode === "overview" && projectData && !hasRun ? (
+      {!projectLoaded || mode === null || (mode === "overview" && !projectData && !hasRun) ? null : mode === "overview" && projectData && !hasRun ? (
         <ProjectHome
           project={projectData.project}
           repos={projectData.repos}
