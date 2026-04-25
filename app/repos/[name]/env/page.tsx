@@ -149,12 +149,39 @@ export default function RepoEnvPage() {
           <>
             <div
               style={{
-                border: `1px solid ${MESH.border}`,
-                borderRadius: 8,
-                background: MESH.bgElev,
-                overflow: "hidden",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                paddingBottom: 10,
+                borderBottom: `1px solid ${MESH.border}`,
+                marginBottom: 12,
               }}
             >
+              <span
+                aria-hidden
+                style={{ width: 4, height: 14, background: MESH.amber, borderRadius: 1 }}
+              />
+              <span className="mesh-hud" style={{ color: MESH.fgDim }}>
+                ENVIRONMENT VARIABLES
+              </span>
+              <span
+                className="mesh-mono"
+                style={{ fontSize: 11, color: MESH.fgMute, marginLeft: "auto" }}
+              >
+                {rows.filter((r) => r.key.trim().length > 0).length} keys
+              </span>
+            </div>
+            <div
+              className="mesh-bracket-wrap"
+              style={{
+                border: `1px solid ${MESH.border}`,
+                background: MESH.bgElev,
+                overflow: "hidden",
+                position: "relative",
+              }}
+            >
+              <span className="mesh-bracket-bl" />
+              <span className="mesh-bracket-br" />
               <div
                 style={{
                   display: "grid",

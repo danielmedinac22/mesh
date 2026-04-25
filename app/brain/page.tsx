@@ -130,26 +130,27 @@ export default function BrainPage() {
       >
         {/* Compose */}
         <section
+          className="mesh-bracket-wrap"
           style={{
-            borderRadius: 10,
             border: `1px solid ${MESH.border}`,
             background: MESH.bgElev,
-            padding: 16,
+            padding: 18,
             display: "flex",
             flexDirection: "column",
-            gap: 10,
+            gap: 12,
+            position: "relative",
           }}
         >
-          <div
-            className="font-mono"
-            style={{
-              fontSize: 11,
-              color: MESH.fgMute,
-              textTransform: "uppercase",
-              letterSpacing: "0.14em",
-            }}
-          >
-            New note
+          <span className="mesh-bracket-bl" />
+          <span className="mesh-bracket-br" />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 4 }}>
+            <span
+              aria-hidden
+              style={{ width: 4, height: 14, background: MESH.amber, borderRadius: 1 }}
+            />
+            <span className="mesh-hud" style={{ color: MESH.fgDim }}>
+              NEW NOTE
+            </span>
           </div>
           <input
             value={title}

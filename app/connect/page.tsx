@@ -9,7 +9,11 @@ import {
   NavIcon,
   Pill,
   ProjectHome,
+  CinemaThinking,
+  Kbd,
   ThinkingPanelRaw,
+  type CinemaMode,
+  type CinemaPhase,
   useUsageRecorder,
   type ProjectHomeMemory,
   type ProjectHomeProject,
@@ -202,6 +206,7 @@ export default function ConnectPage() {
   const [thinking, setThinking] = useState("");
   const [ttft, setTtft] = useState<number | null>(null);
   const [ingestTokens, setIngestTokens] = useState<number | null>(null);
+  const [cinemaMode, setCinemaMode] = useState<CinemaMode>("off");
   const [degraded, setDegraded] = useState(false);
   const [memory, setMemory] = useState<MemoryView | null>(null);
   const [retries, setRetries] = useState<{ attempt: number; reason: string }[]>([]);
@@ -880,6 +885,34 @@ export default function ConnectPage() {
   const statusTone: "green" | "red" | "amber" | "dim" =
     status === "done" ? "green" : status === "error" ? "red" : isRunning ? "amber" : "dim";
 
+  const connectPhases: CinemaPhase[] = useMemo(
+    () => [
+      { id: "clone", label: "Clone", tone: "signal" },
+      { id: "ingest", label: "Ingest", tone: "signal" },
+      { id: "analyze", label: "Analyze", tone: "amber" },
+      { id: "memory", label: "Memory", tone: "green" },
+    ],
+    [],
+  );
+  const connectPhase: CinemaPhase | null = useMemo(() => {
+    if (status === "cloning") return connectPhases[0];
+    if (status === "ingesting") return connectPhases[1];
+    if (status === "streaming") return connectPhases[2];
+    if (status === "done") return connectPhases[3];
+    return null;
+  }, [status, connectPhases]);
+
+  // Auto-open cinema when an ingest run kicks off; auto-dock when done.
+  useEffect(() => {
+    if (isRunning && cinemaMode === "off") setCinemaMode("cinema");
+  }, [isRunning, cinemaMode]);
+  useEffect(() => {
+    if (status === "done" && cinemaMode === "cinema") {
+      const t = setTimeout(() => setCinemaMode("docked"), 1800);
+      return () => clearTimeout(t);
+    }
+  }, [status, cinemaMode]);
+
   return (
     <AppShell
       title="Connect"
@@ -1040,6 +1073,76 @@ export default function ConnectPage() {
       )}
         </>
       )}
+
+      <CinemaThinking
+        mode={cinemaMode}
+        text={thinking}
+        active={isRunning}
+        tokens={thinking.length}
+        phase={connectPhase}
+        phases={connectPhases}
+        title={
+          status === "cloning"
+            ? "Cloning repos"
+            : status === "ingesting"
+              ? "Ingesting source"
+              : status === "streaming"
+                ? "Extracting cross-repo invariants"
+                : status === "done"
+                  ? "Memory committed"
+                  : status === "error"
+                    ? "Run failed"
+                    : "Connect"
+        }
+        subtitle={
+          repos.length > 0
+            ? `${repos.length} repos · ${repos.filter((r) => r.status === "ready").length} ready`
+            : undefined
+        }
+        meta={
+          status === "error" ? (
+            <Pill tone="red">error</Pill>
+          ) : ingestTokens ? (
+            <Pill tone="amber">{Math.round(ingestTokens / 1000)}k ingested</Pill>
+          ) : (
+            <Pill tone={statusTone}>{status}</Pill>
+          )
+        }
+        footer={
+          status === "done" ? (
+            <button
+              type="button"
+              onClick={() => setCinemaMode("off")}
+              className="mesh-mono"
+              style={{
+                padding: "6px 12px",
+                background: MESH.green,
+                color: "#0A1A12",
+                border: `1px solid ${MESH.green}`,
+                borderRadius: 6,
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: "0.14em",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              memory ready · view summary
+            </button>
+          ) : (
+            <span
+              className="mesh-mono"
+              style={{ fontSize: 11, color: MESH.fgMute }}
+            >
+              <Kbd size="xs">esc</Kbd> to dock
+            </span>
+          )
+        }
+        onDismiss={() =>
+          setCinemaMode(isRunning || status === "done" ? "docked" : "off")
+        }
+        onExpand={() => setCinemaMode("cinema")}
+      />
     </AppShell>
   );
 }
@@ -2453,17 +2556,13 @@ function IngestLayout({
           gap: 14,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span
-            className="font-mono"
-            style={{
-              fontSize: 10,
-              color: MESH.fgMute,
-              textTransform: "uppercase",
-              letterSpacing: "0.14em",
-            }}
-          >
-            Workspace
+            aria-hidden
+            style={{ width: 4, height: 14, background: MESH.amber, borderRadius: 1 }}
+          />
+          <span className="mesh-hud" style={{ color: MESH.fgDim }}>
+            WORKSPACE
           </span>
           <Pill tone="amber">
             {repos.length} repos · {repos.filter((r) => r.status === "ready").length} ready
@@ -2678,24 +2777,28 @@ function Stat({
   return (
     <div
       style={{
-        padding: "8px 10px",
+        padding: "10px 12px",
         borderRadius: 6,
         border: `1px solid ${MESH.border}`,
         background: MESH.bg,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
       }}
     >
-      <div
-        className="font-mono"
-        style={{
-          fontSize: 9,
-          color: MESH.fgMute,
-          textTransform: "uppercase",
-          letterSpacing: "0.12em",
-        }}
-      >
+      <div className="mesh-hud" style={{ color: MESH.fgMute }}>
         {label}
       </div>
-      <div className="font-mono" style={{ fontSize: 15, color: MESH.fg, fontWeight: 500 }}>
+      <div
+        className="mesh-display"
+        style={{
+          fontSize: 22,
+          color: MESH.fg,
+          letterSpacing: "-0.02em",
+          lineHeight: 1,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {display}
       </div>
     </div>

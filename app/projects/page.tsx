@@ -178,7 +178,7 @@ export default function ProjectsManagePage() {
                 textAlign: "center",
               }}
             >
-              You don't have a project yet. Create one below to enable Connect,
+              You don&apos;t have a project yet. Create one below to enable Connect,
               Build and Ship.
             </div>
           )}
@@ -368,24 +368,22 @@ function CurrentProjectCard({ project }: { project: ProjectRecord }) {
         gap: 14,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Dot color={PROJECT_COLOR_MAP[project.color]} size={9} />
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Dot color={PROJECT_COLOR_MAP[project.color]} size={10} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
           <div
+            className="mesh-display"
             style={{
-              fontSize: 17,
-              fontWeight: 600,
+              fontSize: 32,
               letterSpacing: "-0.02em",
               color: MESH.fg,
+              lineHeight: 1,
             }}
           >
             {project.name}
           </div>
           {project.label && (
-            <div
-              className="font-mono"
-              style={{ fontSize: 11, color: MESH.fgMute }}
-            >
+            <div className="mesh-hud" style={{ color: MESH.fgMute }}>
               {project.label}
             </div>
           )}
@@ -548,26 +546,19 @@ function SectionHeader({
       }}
     >
       <h2
+        className="mesh-display"
         style={{
           margin: 0,
-          fontSize: 16,
-          fontWeight: 600,
+          fontSize: 28,
           letterSpacing: "-0.02em",
           color: MESH.fg,
+          lineHeight: 1,
         }}
       >
         {title}
       </h2>
       {kicker && (
-        <span
-          className="font-mono"
-          style={{
-            fontSize: 11,
-            color: MESH.fgMute,
-            textTransform: "uppercase",
-            letterSpacing: "0.14em",
-          }}
-        >
+        <span className="mesh-hud" style={{ color: MESH.fgMute }}>
           {kicker}
         </span>
       )}

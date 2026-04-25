@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AppShell,
+  MESH,
   Pill,
   Tabs,
-  TabList,
   Tab,
   TabPanel,
   type TabId,
@@ -18,16 +18,29 @@ import { ProfileSection } from "@/components/settings/profile-section";
 import { GithubSection } from "@/components/settings/github-section";
 import { IntegrationsSection } from "@/components/settings/integrations-section";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "profile", label: "Profile" },
-  { id: "integrations", label: "Integrations" },
-  { id: "github", label: "GitHub" },
-  { id: "engine", label: "Engine" },
-  { id: "skills", label: "Skills" },
-  { id: "agents", label: "Agents" },
+const TAB_GROUPS: {
+  label: string;
+  tabs: { id: TabId; label: string }[];
+}[] = [
+  {
+    label: "WORKSPACE",
+    tabs: [
+      { id: "profile", label: "Profile" },
+      { id: "engine", label: "Engine" },
+      { id: "github", label: "GitHub" },
+    ],
+  },
+  {
+    label: "CUSTOMIZATION",
+    tabs: [
+      { id: "skills", label: "Skills" },
+      { id: "agents", label: "Agents" },
+      { id: "integrations", label: "Integrations" },
+    ],
+  },
 ];
 
-const VALID_TABS = new Set(TABS.map((t) => t.id));
+const VALID_TABS = new Set(TAB_GROUPS.flatMap((g) => g.tabs.map((t) => t.id)));
 
 export default function SettingsPage() {
   const [tab, setTabState] = useState<TabId>("profile");
@@ -86,7 +99,7 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Settings"
-      subtitle="profile · integrations · github · engine · skills · agents"
+      subtitle="workspace · customization"
       topRight={
         <Pill tone={statusTone}>
           {statusMessage && status === "error"
@@ -106,19 +119,53 @@ export default function SettingsPage() {
         >
           <div
             style={{
-              padding: "0 32px",
+              padding: "8px 32px 0",
               maxWidth: 1080,
               width: "100%",
               margin: "0 auto",
             }}
           >
-            <TabList>
-              {TABS.map((t) => (
-                <Tab key={t.id} id={t.id}>
-                  {t.label}
-                </Tab>
+            <div
+              role="tablist"
+              style={{
+                display: "flex",
+                alignItems: "stretch",
+                gap: 0,
+                borderBottom: `1px solid ${MESH.border}`,
+                overflowX: "auto",
+              }}
+            >
+              {TAB_GROUPS.map((group, i) => (
+                <div
+                  key={group.label}
+                  style={{
+                    display: "flex",
+                    alignItems: "stretch",
+                    paddingLeft: i === 0 ? 0 : 24,
+                    marginLeft: i === 0 ? 0 : 24,
+                    borderLeft:
+                      i === 0 ? "none" : `1px solid ${MESH.border}`,
+                    gap: 2,
+                  }}
+                >
+                  <span
+                    className="mesh-hud"
+                    style={{
+                      color: MESH.fgMute,
+                      alignSelf: "center",
+                      paddingRight: 14,
+                    }}
+                  >
+                    {group.label}
+                  </span>
+                  {group.tabs.map((t) => (
+                    <Tab key={t.id} id={t.id}>
+                      {t.label}
+                    </Tab>
+                  ))}
+                </div>
               ))}
-            </TabList>
+            </div>
           </div>
           <div
             style={{

@@ -159,33 +159,37 @@ export default function ReposPage() {
             {repos.map((repo) => (
               <div
                 key={repo.name}
+                className="mesh-bracket-wrap"
                 style={{
-                  padding: "16px 18px",
-                  borderRadius: 8,
+                  padding: "18px 20px",
                   border: `1px solid ${MESH.border}`,
                   background: MESH.bgElev,
                   display: "flex",
                   flexDirection: "column",
-                  gap: 10,
+                  gap: 12,
+                  position: "relative",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="mesh-bracket-bl" />
+                <span className="mesh-bracket-br" />
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                   <Dot color={MESH.green} size={6} />
                   <Link
                     href={`/repos/${encodeURIComponent(repo.name)}`}
-                    className="font-mono"
+                    className="mesh-display"
                     style={{
-                      fontSize: 13,
+                      fontSize: 22,
                       color: MESH.fg,
-                      fontWeight: 500,
+                      letterSpacing: "-0.02em",
                       textDecoration: "none",
+                      lineHeight: 1,
                     }}
                   >
                     {repo.name}
                   </Link>
                   <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
                     <NavIcon kind="branch" color={MESH.fgMute} size={11} />
-                    <span className="font-mono" style={{ fontSize: 11, color: MESH.fgDim }}>
+                    <span className="mesh-mono" style={{ fontSize: 11, color: MESH.fgDim }}>
                       {repo.defaultBranch}
                     </span>
                   </span>

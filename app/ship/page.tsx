@@ -10,8 +10,10 @@ import {
 import {
   AppShell,
   ChecksCard,
+  CinemaThinking,
   DiffViewer,
   Dot,
+  Kbd,
   MESH,
   ModalShell,
   ModalLabel,
@@ -22,6 +24,8 @@ import {
   SecondaryButton,
   TicketReadyCard,
   type CheckLine,
+  type CinemaMode,
+  type CinemaPhase,
   type DiffFileView,
   type PreviewLine,
   type SidebarRepo,
@@ -124,6 +128,7 @@ export default function ShipPage() {
   const [adjustInstruction, setAdjustInstruction] = useState("");
   const [adjustRunning, setAdjustRunning] = useState(false);
   const [adjustEvents, setAdjustEvents] = useState<AdjustEvent[]>([]);
+  const [cinemaMode, setCinemaMode] = useState<CinemaMode>("off");
   // forceSim removed: PR creation happens during Build's "Proceed Ship",
   // and approve/discard already honor each PR's `simulated` flag.
 
@@ -444,12 +449,15 @@ export default function ShipPage() {
     setAdjustInstruction("");
     setAdjustEvents([]);
     setAdjustModalOpen(true);
+    setCinemaMode("off");
   }
 
   async function runAdjust() {
     if (!activeTicketId || !adjustRepo || !adjustInstruction.trim()) return;
     setAdjustRunning(true);
     setAdjustEvents([]);
+    setAdjustModalOpen(false);
+    setCinemaMode("cinema");
     try {
       const res = await fetch("/api/ship/adjust", {
         method: "POST",
@@ -547,6 +555,53 @@ export default function ShipPage() {
     () => adjustEvents.some((e) => e.type === "done"),
     [adjustEvents],
   );
+
+  const adjustPhases: CinemaPhase[] = useMemo(
+    () => [
+      { id: "reasoning", label: "Reason", tone: "amber" },
+      { id: "editing", label: "Edit", tone: "amber" },
+      { id: "committing", label: "Commit", tone: "signal" },
+      { id: "pushing", label: "Push", tone: "signal" },
+      { id: "done", label: "PR updated", tone: "green" },
+    ],
+    [],
+  );
+
+  const adjustPhase: CinemaPhase | null = useMemo(() => {
+    const has = (t: AdjustEvent["type"]) => adjustEvents.some((e) => e.type === t);
+    if (has("done")) return adjustPhases[4];
+    if (has("push")) return adjustPhases[3];
+    if (has("commit")) return adjustPhases[2];
+    if (has("edit-ready")) return adjustPhases[1];
+    if (adjustRunning || has("thinking")) return adjustPhases[0];
+    return null;
+  }, [adjustEvents, adjustPhases, adjustRunning]);
+
+  const adjustTokens = useMemo(
+    () =>
+      adjustEvents.reduce(
+        (n, e) => (e.type === "thinking" ? n + e.delta.length : n),
+        0,
+      ),
+    [adjustEvents],
+  );
+
+  const cinemaTitle = adjustDone
+    ? "Adjustment shipped"
+    : adjustError
+      ? "Adjustment failed"
+      : "Adjusting branch";
+
+  const cinemaSubtitle = adjustRepo
+    ? `${adjustRepo} · ${adjustInstruction.slice(0, 96)}${adjustInstruction.length > 96 ? "…" : ""}`
+    : "";
+
+  const adjustPrUrl = useMemo(() => {
+    const pr = activeTicket?.prs?.find(
+      (p) => p.repo === adjustRepo && (p.html_url || p.url),
+    );
+    return pr?.html_url ?? pr?.url ?? null;
+  }, [activeTicket, adjustRepo]);
 
   const isApproved = !!activeTicket?.labels?.includes("approved");
 
@@ -714,11 +769,6 @@ export default function ShipPage() {
           instruction={adjustInstruction}
           onInstructionChange={setAdjustInstruction}
           running={adjustRunning}
-          done={adjustDone}
-          thinking={adjustThinking}
-          commits={adjustCommits}
-          editedFiles={adjustEditedFiles}
-          error={adjustError}
           onSubmit={runAdjust}
           onClose={() => {
             if (adjustRunning) return;
@@ -726,6 +776,85 @@ export default function ShipPage() {
           }}
         />
       )}
+
+      <CinemaThinking
+        mode={cinemaMode}
+        text={adjustThinking}
+        active={adjustRunning}
+        tokens={adjustTokens}
+        phase={adjustPhase}
+        phases={adjustPhases}
+        title={cinemaTitle}
+        subtitle={cinemaSubtitle}
+        meta={
+          adjustError ? (
+            <Pill tone="red">error</Pill>
+          ) : adjustDone ? (
+            <Pill tone="green">
+              {adjustCommits.length} commit{adjustCommits.length === 1 ? "" : "s"}
+            </Pill>
+          ) : (
+            <Pill tone="amber">{adjustEditedFiles.length} files</Pill>
+          )
+        }
+        footer={
+          adjustDone ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {adjustPrUrl && (
+                <a
+                  href={adjustPrUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mesh-mono"
+                  style={{
+                    padding: "6px 12px",
+                    background: MESH.green,
+                    color: "#0A1A12",
+                    border: `1px solid ${MESH.green}`,
+                    borderRadius: 6,
+                    fontSize: 11,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.14em",
+                    textDecoration: "none",
+                    fontWeight: 600,
+                  }}
+                >
+                  open PR ↗
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setCinemaMode("off")}
+                className="mesh-mono"
+                style={{
+                  padding: "6px 12px",
+                  background: "transparent",
+                  color: MESH.fgDim,
+                  border: `1px solid ${MESH.borderHi}`,
+                  borderRadius: 6,
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.14em",
+                  cursor: "pointer",
+                }}
+              >
+                close
+              </button>
+            </div>
+          ) : (
+            <span
+              className="mesh-mono"
+              style={{ fontSize: 11, color: MESH.fgMute }}
+            >
+              <Kbd size="xs">esc</Kbd> to dock
+            </span>
+          )
+        }
+        onDismiss={() =>
+          setCinemaMode(adjustRunning || adjustDone ? "docked" : "off")
+        }
+        onExpand={() => setCinemaMode("cinema")}
+      />
     </AppShell>
   );
 }
@@ -769,29 +898,44 @@ function EmptyState() {
         alignItems: "center",
         justifyContent: "center",
         flexDirection: "column",
-        gap: 6,
+        gap: 14,
+        padding: 32,
       }}
     >
-      <span
-        className="font-mono"
-        style={{ fontSize: 12, color: MESH.fgDim, fontWeight: 500 }}
-      >
-        select a ticket on the left
+      <span className="mesh-hud" style={{ color: MESH.fgMute }}>
+        · SHIP CONSOLE
       </span>
-      <span
-        className="font-mono"
+      <h2
+        className="mesh-display"
         style={{
-          fontSize: 11,
-          color: MESH.fgMute,
-          maxWidth: 380,
+          margin: 0,
+          fontSize: 36,
+          color: MESH.fgDim,
+          letterSpacing: "-0.02em",
+          lineHeight: 1.1,
           textAlign: "center",
-          lineHeight: 1.55,
         }}
       >
-        Ship operates on tickets that have moved to <b style={{ color: MESH.fgDim }}>for review</b>:
-        Claude has staged commits to the feature branch and opened the draft PR. Validate the diff,
-        run checks + preview, optionally adjust, and mark the PR ready when you&apos;re satisfied.
-      </span>
+        Pick a ticket on the left,
+        <br />
+        <span className="mesh-display-italic" style={{ color: MESH.fg }}>
+          and we go to work.
+        </span>
+      </h2>
+      <p
+        style={{
+          fontSize: 13,
+          color: MESH.fgMute,
+          maxWidth: 460,
+          textAlign: "center",
+          lineHeight: 1.7,
+          margin: 0,
+        }}
+      >
+        Ship operates on tickets that moved to <b style={{ color: MESH.fgDim }}>for review</b>.
+        Claude has staged commits and opened the draft PR. Validate the diff, run checks,
+        spin a preview, adjust if needed, then mark ready.
+      </p>
     </div>
   );
 }
@@ -1075,43 +1219,108 @@ function PrSummary({
   if (ticket.prs.length === 0) {
     return (
       <div
-        className="font-mono"
         style={{
-          fontSize: 11,
-          color: MESH.fgMute,
-          padding: 12,
+          padding: 16,
           border: `1px dashed ${MESH.border}`,
-          borderRadius: 6,
+          borderRadius: 8,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
-        no PRs attached yet — once Generate finishes you&apos;ll see draft PR(s) here.
+        <div
+          className="mesh-display"
+          style={{
+            fontSize: 22,
+            color: MESH.fgDim,
+            letterSpacing: "-0.01em",
+            fontStyle: "italic",
+          }}
+        >
+          No PRs attached yet.
+        </div>
+        <div
+          className="mesh-hud"
+          style={{ color: MESH.fgMute }}
+        >
+          ONCE GENERATE FINISHES, DRAFT PRs SHOW HERE
+        </div>
       </div>
     );
   }
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <span
-        className="font-mono"
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        padding: "20px 22px",
+        background: MESH.bgElev,
+        border: `1px solid ${MESH.borderHi}`,
+        borderRadius: 10,
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        aria-hidden
         style={{
-          fontSize: 10,
-          color: MESH.fgMute,
-          textTransform: "uppercase",
-          letterSpacing: "0.14em",
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(60% 80% at 100% 0%, ${
+            isApproved ? "rgba(48,164,108,0.10)" : "rgba(245,165,36,0.08)"
+          } 0%, transparent 60%)`,
+          pointerEvents: "none",
+        }}
+      />
+      <header
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 16,
         }}
       >
-        Pull requests · {ticket.prs.length}
-      </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, flex: 1 }}>
+          <span className="mesh-hud" style={{ color: MESH.fgMute }}>
+            PULL REQUESTS · {ticket.prs.length}
+          </span>
+          <h2
+            className="mesh-display"
+            style={{
+              margin: 0,
+              fontSize: 28,
+              color: MESH.fg,
+              letterSpacing: "-0.02em",
+              lineHeight: 1.15,
+            }}
+          >
+            {ticket.title}
+          </h2>
+          <span
+            className="mesh-mono"
+            style={{ fontSize: 11, color: MESH.fgMute }}
+          >
+            {ticket.id} · {ticket.labels.join(" · ") || "no labels"}
+          </span>
+        </div>
+        <Pill tone={isApproved ? "green" : "amber"}>
+          {isApproved ? "ready to merge" : "awaiting review"}
+        </Pill>
+      </header>
       {ticket.prs.map((pr) => (
         <div
           key={pr.url}
           style={{
+            position: "relative",
             display: "flex",
             alignItems: "center",
             gap: 10,
-            padding: "8px 10px",
-            background: MESH.bgElev,
+            padding: "10px 12px",
+            background: MESH.bg,
             border: `1px solid ${pr.simulated ? MESH.border : "rgba(48,164,108,0.25)"}`,
-            borderRadius: 5,
+            borderRadius: 6,
           }}
         >
           <NavIcon
@@ -1167,23 +1376,27 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+    <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          paddingBottom: 8,
+          borderBottom: `1px solid ${MESH.border}`,
+        }}
+      >
         <span
-          className="font-mono"
-          style={{
-            fontSize: 10,
-            color: MESH.fgMute,
-            textTransform: "uppercase",
-            letterSpacing: "0.14em",
-          }}
-        >
+          aria-hidden
+          style={{ width: 4, height: 14, background: MESH.amber, borderRadius: 1 }}
+        />
+        <span className="mesh-hud" style={{ color: MESH.fgDim }}>
           {label}
         </span>
         {sub && (
           <span
-            className="font-mono"
-            style={{ fontSize: 10.5, color: MESH.fgDim }}
+            className="mesh-mono"
+            style={{ fontSize: 11, color: MESH.fgMute }}
           >
             {sub}
           </span>
@@ -1201,11 +1414,6 @@ function AdjustModal({
   instruction,
   onInstructionChange,
   running,
-  done,
-  thinking,
-  commits,
-  editedFiles,
-  error,
   onSubmit,
   onClose,
 }: {
@@ -1213,18 +1421,22 @@ function AdjustModal({
   instruction: string;
   onInstructionChange: (v: string) => void;
   running: boolean;
-  done: boolean;
-  thinking: string;
-  commits: (AdjustEvent & { type: "commit" })[];
-  editedFiles: (AdjustEvent & { type: "edit-ready" })[];
-  error?: AdjustEvent & { type: "error" };
   onSubmit: () => void;
   onClose: () => void;
 }) {
   return (
     <ModalShell
       open
-      title={`Adjust ${repo}`}
+      title={
+        <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8 }}>
+          <span className="mesh-display" style={{ fontSize: 24, letterSpacing: "-0.01em" }}>
+            Adjust
+          </span>
+          <span className="mesh-mono" style={{ fontSize: 12, color: MESH.fgDim }}>
+            {repo}
+          </span>
+        </span>
+      }
       meta="addendum commit on existing branch — PR auto-updates"
       onClose={onClose}
     >
@@ -1233,105 +1445,39 @@ function AdjustModal({
         <textarea
           value={instruction}
           onChange={(e) => onInstructionChange(e.target.value)}
-          disabled={running || done}
+          disabled={running}
+          autoFocus
           placeholder="e.g. add a default value to the new env var so the readme example still works"
-          rows={4}
+          rows={5}
           className="font-mono"
           style={{
             background: MESH.bgInput,
             color: MESH.fg,
             border: `1px solid ${MESH.border}`,
             borderRadius: 6,
-            padding: "10px 12px",
-            fontSize: 12,
+            padding: "12px 14px",
+            fontSize: 12.5,
+            lineHeight: 1.6,
             resize: "vertical",
             outline: "none",
           }}
         />
-
-        {(thinking || commits.length > 0 || editedFiles.length > 0 || error) && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-              padding: 12,
-              background: MESH.bgElev,
-              border: `1px solid ${MESH.border}`,
-              borderRadius: 6,
-              maxHeight: 320,
-              overflow: "auto",
-            }}
-          >
-            {thinking && (
-              <pre
-                className="font-mono"
-                style={{
-                  fontSize: 10.5,
-                  color: MESH.fgDim,
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  lineHeight: 1.55,
-                }}
-              >
-                {thinking}
-              </pre>
-            )}
-            {editedFiles.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {editedFiles.map((f) => (
-                  <div
-                    key={f.file}
-                    className="font-mono"
-                    style={{
-                      fontSize: 11,
-                      color: MESH.fg,
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "center",
-                    }}
-                  >
-                    <NavIcon kind="file" color={MESH.fgDim} size={10} />
-                    <span style={{ flex: 1, wordBreak: "break-all" }}>{f.file}</span>
-                    <span style={{ color: MESH.green }}>~{f.additions_estimate} lines</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {commits.map((c) => (
-              <div
-                key={c.sha}
-                className="font-mono"
-                style={{
-                  fontSize: 11,
-                  color: MESH.fg,
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                }}
-              >
-                <Dot color={MESH.green} size={5} />
-                <span style={{ color: MESH.fgMute }}>{c.sha.slice(0, 7)}</span>
-                <span style={{ flex: 1 }}>{c.message}</span>
-              </div>
-            ))}
-            {error && (
-              <div
-                className="font-mono"
-                style={{
-                  fontSize: 11,
-                  color: MESH.red,
-                  padding: "6px 8px",
-                  background: "rgba(229,72,77,0.06)",
-                  borderRadius: 4,
-                }}
-              >
-                {error.message}
-              </div>
-            )}
-          </div>
-        )}
+        <div
+          className="mesh-hud"
+          style={{
+            color: MESH.fgMute,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span>WHEN YOU SEND</span>
+          <span style={{ color: MESH.fgDim }}>·</span>
+          <span style={{ color: MESH.fgDim, textTransform: "none", letterSpacing: 0, fontSize: 11 }}>
+            Claude reasons → edits files → commits → pushes. You watch the whole thing in
+            cinema mode.
+          </span>
+        </div>
 
         <div
           style={{
@@ -1341,13 +1487,13 @@ function AdjustModal({
           }}
         >
           <SecondaryButton onClick={onClose} disabled={running}>
-            {done ? "close" : "cancel"}
+            cancel
           </SecondaryButton>
           <PrimaryButton
             onClick={onSubmit}
-            disabled={running || done || !instruction.trim()}
+            disabled={running || !instruction.trim()}
           >
-            {running ? "running…" : done ? "done" : "send to Claude"}
+            {running ? "running…" : "send to Claude"}
           </PrimaryButton>
         </div>
       </div>
