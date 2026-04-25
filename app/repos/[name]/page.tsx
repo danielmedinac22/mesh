@@ -274,16 +274,20 @@ function Section({
   return (
     <div>
       <h2
-        className="font-mono"
+        className="mesh-hud"
         style={{
-          fontSize: 10,
-          color: MESH.fgMute,
-          textTransform: "uppercase",
-          letterSpacing: "0.14em",
           margin: 0,
-          marginBottom: 10,
+          marginBottom: 12,
+          color: MESH.fgDim,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
         }}
       >
+        <span
+          aria-hidden
+          style={{ width: 4, height: 12, background: MESH.amber, borderRadius: 1 }}
+        />
         {title}
       </h2>
       {children}

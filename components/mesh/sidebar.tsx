@@ -285,19 +285,21 @@ function NavLinkRow({
     </>
   );
   const baseStyle: React.CSSProperties = {
-    padding: "7px 10px",
-    paddingLeft: indent ? 16 : 10,
+    padding: "8px 10px",
+    paddingLeft: indent ? 18 : 12,
     borderRadius: 5,
-    background: active ? "rgba(245,165,36,0.08)" : "transparent",
+    background: active ? "rgba(245,165,36,0.10)" : "transparent",
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 11,
     fontSize: 13,
     color,
     fontWeight: active ? 500 : 400,
     borderLeft: `2px solid ${active ? MESH.amber : "transparent"}`,
+    boxShadow: active ? "inset 8px 0 24px -16px rgba(245,165,36,0.4)" : "none",
     textDecoration: "none",
-    transition: "background 120ms, color 120ms",
+    transition:
+      "background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease)",
     opacity: disabled ? 0.45 : 1,
     cursor: disabled ? "not-allowed" : "pointer",
   };

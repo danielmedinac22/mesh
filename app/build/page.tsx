@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AppShell,
+  CinemaThinking,
   KanbanColumn,
+  Kbd,
   MESH,
   NewTicketModal,
   Pill,
   PrimaryButton,
   TicketCard,
+  useDraftCinema,
   type NewTicketPayload,
   type KanbanColumnTone,
 } from "@/components/mesh";
@@ -33,13 +36,13 @@ const COLS: Array<{
   {
     status: "inbox",
     title: "Inbox",
-    subtitle: "unclassified",
+    subtitle: "unclassified · awaiting claude",
     tone: "inbox",
   },
   {
     status: "drafted",
     title: "Drafted",
-    subtitle: "claude produced a plan",
+    subtitle: "cross-repo plan ready",
     tone: "amber",
   },
   {
@@ -51,7 +54,7 @@ const COLS: Array<{
   {
     status: "for_review",
     title: "For review",
-    subtitle: "prs open, awaiting human",
+    subtitle: "prs open · awaiting human",
     tone: "green",
   },
 ];
@@ -67,6 +70,7 @@ export default function BuildBoardPage() {
   });
   const [modalOpen, setModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const cinema = useDraftCinema();
 
   const loadTickets = useCallback(async () => {
     try {
@@ -219,13 +223,14 @@ export default function BuildBoardPage() {
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const { ticket } = (await res.json()) as { ticket: { id: string } };
+      const { ticket } = (await res.json()) as {
+        ticket: { id: string; title: string };
+      };
       setModalOpen(false);
       await loadTickets();
       if (p.handoff) {
-        // Fire and drain the SSE stream in the background. The board polls the
-        // ticket index to pick up status transitions.
-        void streamDraft(ticket.id, loadTickets);
+        cinema.start(ticket.id, ticket.title ?? p.title);
+        // Background poll keeps the kanban in sync while cinema runs.
       }
     } catch (err) {
       alert(
@@ -239,6 +244,19 @@ export default function BuildBoardPage() {
   };
 
   const totalActive = tickets.length;
+
+  // Auto-refresh once cinema completes so the kanban shows the new "drafted" ticket
+  useEffect(() => {
+    if (cinema.doneAt) {
+      void loadTickets();
+    }
+  }, [cinema.doneAt, loadTickets]);
+
+  const cinemaSubtitle = cinema.ticketTitle
+    ? cinema.ticketTitle
+    : cinema.ticketId
+      ? cinema.ticketId
+      : undefined;
 
   return (
     <AppShell
@@ -284,12 +302,12 @@ export default function BuildBoardPage() {
           flex: 1,
           minHeight: 0,
           display: "flex",
-          gap: 16,
-          padding: "18px 24px 16px",
+          gap: 18,
+          padding: "20px 28px 18px",
           overflow: "hidden",
         }}
       >
-        {COLS.map((c) => {
+        {COLS.map((c, i) => {
           const bucket = grouped[c.status];
           return (
             <KanbanColumn
@@ -298,24 +316,10 @@ export default function BuildBoardPage() {
               subtitle={c.subtitle}
               tone={c.tone}
               count={bucket.length}
+              index={i}
               footer={
                 c.status === "drafted" && bucket.length === 0 ? (
-                  <div
-                    className="font-mono"
-                    style={{
-                      padding: "10px 12px",
-                      fontSize: 10,
-                      color: MESH.fgMute,
-                      background: MESH.bgElev,
-                      border: `1px dashed ${MESH.border}`,
-                      borderRadius: 6,
-                      textAlign: "center",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    new tickets are auto-drafted by claude
-                    <br />— cross-repo plan appears here in ~8s —
-                  </div>
+                  <DraftHint />
                 ) : null
               }
             >
@@ -340,57 +344,269 @@ export default function BuildBoardPage() {
         onSubmit={onSubmit}
         busy={creating}
       />
+
+      <CinemaThinking
+        mode={cinema.mode}
+        text={cinema.text}
+        active={cinema.active}
+        tokens={cinema.tokens}
+        phase={cinema.phase}
+        phases={cinema.phases}
+        title={cinemaSubtitle ? "Drafting cross-repo plan" : "Extended thinking"}
+        subtitle={cinemaSubtitle}
+        meta={
+          cinema.error ? (
+            <Pill tone="red">error</Pill>
+          ) : (
+            <Pill tone={cinema.active ? "amber" : "green"}>
+              {cinema.active
+                ? cinema.phase?.label ?? "thinking"
+                : cinema.doneAt
+                  ? "plan ready"
+                  : "ready"}
+            </Pill>
+          )
+        }
+        footer={
+          cinema.doneAt && cinema.ticketId ? (
+            <a
+              href={`/build/${encodeURIComponent(cinema.ticketId)}`}
+              className="mesh-mono"
+              style={{
+                padding: "6px 12px",
+                background: MESH.amber,
+                color: "#1A1208",
+                border: `1px solid ${MESH.amber}`,
+                borderRadius: 6,
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: "0.14em",
+                textDecoration: "none",
+                fontWeight: 600,
+              }}
+            >
+              open plan ↗
+            </a>
+          ) : (
+            <span
+              className="mesh-mono"
+              style={{ fontSize: 11, color: MESH.fgMute }}
+            >
+              <Kbd size="xs">esc</Kbd> to dock
+            </span>
+          )
+        }
+        onDismiss={() => cinema.setMode("docked")}
+        onExpand={() => cinema.setMode("cinema")}
+      />
+
+      {cinema.mode === "docked" && cinema.ticketId && (
+        <DockedChip
+          ticketTitle={cinema.ticketTitle ?? cinema.ticketId}
+          phase={cinema.phase?.label ?? "thinking"}
+          tokens={cinema.tokens}
+          active={cinema.active}
+          onExpand={() => cinema.setMode("cinema")}
+          onClose={() => cinema.dismiss()}
+        />
+      )}
     </AppShell>
+  );
+}
+
+function DraftHint() {
+  return (
+    <div
+      style={{
+        padding: "12px 14px",
+        background: MESH.bgElev,
+        border: `1px dashed ${MESH.border}`,
+        borderRadius: 6,
+        textAlign: "center",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13,
+          color: MESH.fgDim,
+          lineHeight: 1.4,
+          fontWeight: 500,
+        }}
+      >
+        Claude drafts here
+      </div>
+      <div
+        className="mesh-mono"
+        style={{
+          fontSize: 9,
+          color: MESH.fgMute,
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+          lineHeight: 1.6,
+        }}
+      >
+        cross-repo plan · ~8 seconds
+      </div>
+    </div>
   );
 }
 
 function EmptyBucket({ status }: { status: TicketStatus }) {
   const copy =
     status === "inbox"
-      ? "press c to create a ticket"
+      ? "Inbox is calm."
       : status === "in_process"
-        ? "tickets land here when you ship"
+        ? "Tickets land here when you ship."
         : status === "for_review"
-          ? "open prs will surface here"
+          ? "Open PRs surface here."
           : "";
   if (!copy) return null;
   return (
     <div
-      className="font-mono"
       style={{
-        padding: "12px 10px",
-        fontSize: 10,
-        color: MESH.fgMute,
+        padding: "20px 12px",
         textAlign: "center",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
       }}
     >
-      {copy}
+      <div
+        style={{
+          fontSize: 13,
+          color: MESH.fgDim,
+          lineHeight: 1.5,
+          fontWeight: 400,
+        }}
+      >
+        {copy}
+      </div>
+      {status === "inbox" && (
+        <div
+          className="mesh-mono"
+          style={{
+            fontSize: 10,
+            color: MESH.fgMute,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            textTransform: "uppercase",
+            letterSpacing: "0.14em",
+          }}
+        >
+          press <Kbd size="xs" tone="amber">c</Kbd> to draft
+        </div>
+      )}
     </div>
   );
 }
 
-async function streamDraft(
-  ticketId: string,
-  onUpdate: () => Promise<void>,
-): Promise<void> {
-  try {
-    const res = await fetch(
-      `/api/build/tickets/${encodeURIComponent(ticketId)}/draft`,
-      { method: "POST" },
-    );
-    if (!res.ok || !res.body) {
-      void onUpdate();
-      return;
-    }
-    const reader = res.body.getReader();
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { done } = await reader.read();
-      if (done) break;
-    }
-  } catch {
-    // swallow; polling handles final state
-  } finally {
-    void onUpdate();
-  }
+function DockedChip({
+  ticketTitle,
+  phase,
+  tokens,
+  active,
+  onExpand,
+  onClose,
+}: {
+  ticketTitle: string;
+  phase: string;
+  tokens: number;
+  active: boolean;
+  onExpand: () => void;
+  onClose: () => void;
+}) {
+  const tokensLabel =
+    tokens >= 4000
+      ? `${(Math.ceil(tokens / 4) / 1000).toFixed(1)}K`
+      : `${Math.ceil(tokens / 4)}`;
+  return (
+    <div
+      role="status"
+      style={{
+        position: "fixed",
+        bottom: 22,
+        right: 22,
+        zIndex: 70,
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 14px",
+        background: MESH.bgElev,
+        border: `1px solid ${MESH.borderHi}`,
+        borderRadius: 8,
+        boxShadow: "0 12px 36px rgba(0,0,0,0.55), 0 0 0 1px rgba(245,165,36,0.18)",
+        animation: "mesh-rise var(--motion-base) var(--ease) both",
+      }}
+    >
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: active ? MESH.amber : MESH.green,
+          boxShadow: active ? `0 0 12px ${MESH.amber}` : "none",
+          animation: active ? "mesh-pulse 1.6s ease-in-out infinite" : undefined,
+        }}
+      />
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 260 }}>
+        <span
+          className="mesh-mono"
+          style={{
+            fontSize: 11,
+            color: MESH.fg,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            maxWidth: 260,
+          }}
+        >
+          {ticketTitle}
+        </span>
+        <span
+          className="mesh-hud"
+          style={{ color: MESH.fgMute }}
+        >
+          {phase} · ~{tokensLabel} thinking
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onExpand}
+        className="mesh-mono"
+        style={{
+          background: "transparent",
+          color: MESH.amber,
+          border: `1px solid ${MESH.borderHi}`,
+          borderRadius: 4,
+          padding: "4px 8px",
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+          cursor: "pointer",
+        }}
+      >
+        expand
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Dismiss"
+        style={{
+          background: "transparent",
+          color: MESH.fgMute,
+          border: 0,
+          fontSize: 14,
+          cursor: "pointer",
+          padding: "0 4px",
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
 }

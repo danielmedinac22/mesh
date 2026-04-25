@@ -72,16 +72,17 @@ export function TicketCard({
 
   const body = (
     <div
-      className={className}
+      className={`${className ?? ""} mesh-ticket-card`}
       style={{
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        padding: "10px 12px",
+        padding: "12px 14px",
         background: MESH.bgElev,
         border: `1px solid ${MESH.border}`,
         borderRadius: 6,
-        transition: "background 120ms, border-color 120ms",
+        transition:
+          "background var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease)",
         cursor: href ? "pointer" : "default",
       }}
     >

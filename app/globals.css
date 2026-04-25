@@ -16,10 +16,17 @@
     --mesh-fg-mute: #6A6A72;
     --mesh-amber: #F5A524;
     --mesh-amber-dim: #7A5510;
+    --mesh-amber-glow: rgba(245, 165, 36, 0.12);
     --mesh-green: #30A46C;
+    --mesh-green-glow: rgba(48, 164, 108, 0.12);
     --mesh-red: #E5484D;
+    --mesh-red-glow: rgba(229, 72, 77, 0.12);
     --mesh-blue: #5EB1EF;
     --mesh-purple: #B08CDD;
+
+    --mesh-signal: #4C9AFF;
+    --mesh-signal-dim: #10243F;
+    --mesh-signal-glow: rgba(76, 154, 255, 0.14);
 
     --mesh-code-default: #C8C8CC;
     --mesh-code-string: #E8B464;
@@ -27,7 +34,23 @@
     --mesh-code-number: #5EB1EF;
     --mesh-code-comment: #6A6A72;
 
-    /* Shadcn-compat HSL (mapped to Mesh palette so existing Tailwind tokens render correctly) */
+    /* Motion */
+    --motion-fast: 160ms;
+    --motion-base: 240ms;
+    --motion-slow: 420ms;
+    --motion-cinema: 520ms;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+    /* Tracking */
+    --track-hud: 0.14em;
+    --track-label: 0.10em;
+
+    /* Atmosphere — SVG noise data URI baked in. fractalNoise + small alpha. */
+    --grain-url: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.92 0 0 0 0 0.92 0 0 0 0 0.94 0 0 0 0.07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+
+    /* Shadcn-compat HSL */
     --background: 240 4% 4%;
     --foreground: 0 0% 93%;
     --muted: 240 7% 8%;
@@ -70,15 +93,146 @@
   }
 }
 
-/* Utility: subtle amber radial glow background for panel headers */
+/* Typography utilities */
+.mesh-display {
+  font-family: var(--font-display), Georgia, serif;
+  letter-spacing: -0.02em;
+  font-weight: 400;
+}
+.mesh-display-italic {
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  letter-spacing: -0.01em;
+}
+.mesh-mono {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.mesh-hud {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: var(--track-hud);
+  font-size: 10px;
+  font-weight: 500;
+}
+.mesh-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mesh-fg-dim);
+}
+
+/* Atmosphere — global grain overlay. Mounted by <Atmosphere />. */
+.mesh-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: var(--grain-url);
+  background-size: 240px 240px;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+}
+.mesh-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(120% 80% at 50% 100%, rgba(0, 0, 0, 0.55) 0%, transparent 60%),
+    radial-gradient(120% 80% at 50% 0%, rgba(0, 0, 0, 0.35) 0%, transparent 60%);
+}
+.mesh-glow-route {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(60% 50% at var(--glow-x, 78%) var(--glow-y, 12%), var(--glow-color, var(--mesh-amber-glow)) 0%, transparent 65%),
+    radial-gradient(50% 60% at 0% 100%, rgba(76, 154, 255, 0.05) 0%, transparent 70%);
+  transition: background var(--motion-slow) var(--ease);
+}
+
+/* Legacy alias kept for places that still reference it */
 .mesh-glow-amber {
   background: radial-gradient(ellipse at 18% 50%, rgba(245, 165, 36, 0.12) 0%, transparent 55%);
 }
 
-/* Thinking stream typography */
-.mesh-mono {
-  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
+/* Page reveal — staggered children */
+.mesh-reveal > * {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: mesh-rise var(--motion-base) var(--ease) forwards;
+}
+.mesh-reveal > *:nth-child(1) { animation-delay: 0ms; }
+.mesh-reveal > *:nth-child(2) { animation-delay: 60ms; }
+.mesh-reveal > *:nth-child(3) { animation-delay: 120ms; }
+.mesh-reveal > *:nth-child(4) { animation-delay: 180ms; }
+.mesh-reveal > *:nth-child(5) { animation-delay: 240ms; }
+.mesh-reveal > *:nth-child(6) { animation-delay: 300ms; }
+.mesh-reveal > *:nth-child(7) { animation-delay: 360ms; }
+.mesh-reveal > *:nth-child(n+8) { animation-delay: 420ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mesh-reveal > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* HUD corner brackets */
+.mesh-bracket-wrap {
+  position: relative;
+}
+.mesh-bracket-wrap::before,
+.mesh-bracket-wrap::after,
+.mesh-bracket-wrap > .mesh-bracket-bl,
+.mesh-bracket-wrap > .mesh-bracket-br {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--mesh-border-hi);
+  pointer-events: none;
+}
+.mesh-bracket-wrap::before {
+  top: -1px;
+  left: -1px;
+  border-right: none;
+  border-bottom: none;
+}
+.mesh-bracket-wrap::after {
+  top: -1px;
+  right: -1px;
+  border-left: none;
+  border-bottom: none;
+}
+.mesh-bracket-wrap > .mesh-bracket-bl {
+  bottom: -1px;
+  left: -1px;
+  border-right: none;
+  border-top: none;
+}
+.mesh-bracket-wrap > .mesh-bracket-br {
+  bottom: -1px;
+  right: -1px;
+  border-left: none;
+  border-top: none;
+}
+.mesh-bracket-amber::before,
+.mesh-bracket-amber::after,
+.mesh-bracket-amber > .mesh-bracket-bl,
+.mesh-bracket-amber > .mesh-bracket-br {
+  border-color: var(--mesh-amber);
+}
+.mesh-bracket-signal::before,
+.mesh-bracket-signal::after,
+.mesh-bracket-signal > .mesh-bracket-bl,
+.mesh-bracket-signal > .mesh-bracket-br {
+  border-color: var(--mesh-signal);
 }
 
 /* Scrollbars */
@@ -87,9 +241,50 @@
 *::-webkit-scrollbar-thumb { background: var(--mesh-border); border-radius: 999px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--mesh-border-hi); }
 
+/* Ticket card hover lift */
+.mesh-ticket-card:hover {
+  border-color: var(--mesh-border-hi);
+  background: var(--mesh-bg-elev-2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(245, 165, 36, 0.12);
+}
+
+/* Cursor blink for thinking */
+.mesh-caret::after {
+  content: "▍";
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--mesh-amber);
+  animation: mesh-blink 1s steps(2, end) infinite;
+}
+.mesh-caret-signal::after { color: var(--mesh-signal); }
+
 @keyframes mesh-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.45; transform: scale(0.85); }
+}
+@keyframes mesh-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes mesh-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mesh-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mesh-cinema-in {
+  from { opacity: 0; transform: scale(0.98) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes mesh-cinema-backdrop {
+  from { opacity: 0; backdrop-filter: blur(0); }
+  to { opacity: 1; backdrop-filter: blur(8px); }
+}
+@keyframes mesh-draw-line {
+  to { stroke-dashoffset: 0; }
 }
 @keyframes spin {
   from { transform: rotate(0deg); }

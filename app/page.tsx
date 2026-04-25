@@ -133,29 +133,44 @@ function EmptyHome() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span
+                className="mesh-display"
                 style={{
-                  fontSize: 16,
-                  fontWeight: 600,
-                  letterSpacing: "-0.02em",
+                  fontSize: 22,
                   color: MESH.fg,
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1,
                 }}
               >
-                Welcome to Mesh
+                Mesh
+              </span>
+              <span
+                className="mesh-mono"
+                style={{
+                  fontSize: 9,
+                  color: MESH.fgMute,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  paddingLeft: 8,
+                  borderLeft: `1px solid ${MESH.border}`,
+                  marginLeft: 4,
+                }}
+              >
+                v0.1 · alpha
               </span>
             </div>
             <div
-              className="font-mono"
+              className="mesh-mono"
               style={{
                 fontSize: 11,
                 color: MESH.fgMute,
-                marginTop: 4,
+                marginTop: 8,
                 letterSpacing: "0.02em",
               }}
             >
               no projects yet · create your first to begin
             </div>
           </div>
-          <Pill tone="amber">Opus 4.7 · 1M</Pill>
+          <Pill tone="amber">Opus 4.7 · 1M ctx</Pill>
         </div>
 
         <div
@@ -167,40 +182,39 @@ function EmptyHome() {
             marginTop: 64,
           }}
         >
-          <div style={{ maxWidth: 520 }}>
+          <div className="mesh-reveal" style={{ maxWidth: 560 }}>
             <div
-              className="font-mono"
+              className="mesh-hud"
               style={{
-                fontSize: 10,
                 color: MESH.amber,
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                marginBottom: 20,
+                marginBottom: 24,
               }}
             >
-              Welcome to Mesh
+              · MISSION CONTROL FOR MULTI-REPO TEAMS
             </div>
             <h1
+              className="mesh-display"
               style={{
-                fontSize: 44,
-                fontWeight: 600,
-                letterSpacing: "-0.03em",
-                lineHeight: 1.1,
+                fontSize: 76,
+                lineHeight: 0.96,
                 margin: 0,
                 color: MESH.fg,
+                letterSpacing: "-0.035em",
               }}
             >
               The living layer
               <br />
-              over your codebase.
+              <span className="mesh-display-italic" style={{ color: MESH.amber }}>
+                over your codebase.
+              </span>
             </h1>
             <p
               style={{
-                fontSize: 14,
+                fontSize: 15,
                 color: MESH.fgDim,
-                lineHeight: 1.65,
-                marginTop: 20,
-                maxWidth: 440,
+                lineHeight: 1.7,
+                marginTop: 28,
+                maxWidth: 460,
               }}
             >
               A project is a set of related repos — web, api, analytics,
@@ -286,19 +300,41 @@ function EmptyHome() {
 
 function Step({ n, title, desc }: { n: string; title: string; desc: string }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "32px 120px 1fr", gap: 12 }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "44px 130px 1fr",
+        gap: 16,
+        alignItems: "baseline",
+        padding: "10px 0",
+        borderTop: `1px solid ${MESH.border}`,
+      }}
+    >
       <span
-        className="font-mono"
-        style={{ fontSize: 11, color: MESH.fgMute, paddingTop: 2 }}
+        className="mesh-display"
+        style={{
+          fontSize: 28,
+          color: MESH.amber,
+          letterSpacing: "-0.02em",
+          lineHeight: 1,
+        }}
       >
         {n}
       </span>
-      <span style={{ fontSize: 13, fontWeight: 600, color: MESH.fg }}>
+      <span
+        className="mesh-display"
+        style={{
+          fontSize: 22,
+          color: MESH.fg,
+          letterSpacing: "-0.01em",
+          lineHeight: 1,
+        }}
+      >
         {title}
       </span>
       <span
-        className="font-mono"
-        style={{ fontSize: 12, color: MESH.fgDim, lineHeight: 1.55 }}
+        className="mesh-mono"
+        style={{ fontSize: 12, color: MESH.fgDim, lineHeight: 1.65 }}
       >
         {desc}
       </span>
@@ -533,29 +569,30 @@ function PopulatedHome({
             >
               <Dot color={projectColor} size={8} />
               <span
+                className="mesh-display"
                 style={{
-                  fontSize: 16,
-                  fontWeight: 600,
+                  fontSize: 22,
                   letterSpacing: "-0.02em",
                   color: MESH.fg,
+                  lineHeight: 1,
                 }}
               >
                 {project.name}
               </span>
               {project.label && <Pill tone="dim">{project.label}</Pill>}
               <span
-                className="font-mono"
-                style={{ fontSize: 10, color: MESH.fgMute, marginLeft: 4 }}
+                className="mesh-hud"
+                style={{ color: MESH.fgMute, marginLeft: 4 }}
               >
-                open →
+                OPEN →
               </span>
             </Link>
             <div
-              className="font-mono"
+              className="mesh-mono"
               style={{
                 fontSize: 11,
                 color: MESH.fgMute,
-                marginTop: 4,
+                marginTop: 8,
                 letterSpacing: "0.02em",
               }}
             >
@@ -571,26 +608,50 @@ function PopulatedHome({
             display: "flex",
             alignItems: "flex-end",
             justifyContent: "space-between",
-            padding: "36px 0 24px",
+            gap: 20,
+            padding: "44px 0 28px",
+            borderBottom: `1px solid ${MESH.border}`,
+            marginBottom: 24,
           }}
         >
-          <h1
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <span className="mesh-hud" style={{ color: MESH.amber }}>
+              · TODAY
+            </span>
+            <h1
+              className="mesh-display"
+              style={{
+                margin: 0,
+                fontSize: 56,
+                lineHeight: 1.0,
+                color: MESH.fg,
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Welcome back,{" "}
+              <span className="mesh-display-italic" style={{ color: MESH.amber }}>
+                operator.
+              </span>
+            </h1>
+          </div>
+          <div
+            className="mesh-mono"
             style={{
-              margin: 0,
-              fontSize: 34,
-              fontWeight: 600,
-              letterSpacing: "-0.02em",
-              color: MESH.fg,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: 4,
+              fontSize: 11,
+              color: MESH.fgMute,
             }}
           >
-            Welcome back, <span style={{ color: MESH.fg }}>you</span>
-          </h1>
-          <span
-            className="font-mono"
-            style={{ fontSize: 11, color: MESH.fgMute }}
-          >
-            {formatToday()}
-          </span>
+            <span style={{ color: MESH.fgDim, fontSize: 12 }}>
+              {formatToday()}
+            </span>
+            <span style={{ letterSpacing: "0.14em", textTransform: "uppercase" }}>
+              opus 4.7 · 1M ctx
+            </span>
+          </div>
         </div>
 
         <NewTicketInput

@@ -65,24 +65,23 @@ export function SettingsSection({
       >
         <Chevron open={open} />
         <h2
+          className="mesh-display"
           style={{
-            fontSize: 18,
-            fontWeight: 600,
+            fontSize: 28,
             letterSpacing: "-0.02em",
             margin: 0,
             color: MESH.fg,
+            lineHeight: 1,
           }}
         >
           {title}
         </h2>
         {kicker ? (
           <span
-            className="font-mono"
+            className="mesh-hud"
             style={{
-              fontSize: 11,
               color: MESH.fgMute,
-              textTransform: "uppercase",
-              letterSpacing: "0.14em",
+              paddingLeft: 6,
             }}
           >
             {kicker}
