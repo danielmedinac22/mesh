@@ -1,69 +1,105 @@
-import type { Memory } from "@/lib/memory";
-import { compactMemory } from "@/lib/prompts/classify";
-
-const INSTRUCTIONS = `You are Mesh's Plan agent. A human has already classified a ticket as a code_change touching a set of repos. Your job is to produce a coherent, invariant-respecting, cross-repo plan — the plan that a human eng lead would draft after reading the ticket and the relevant code.
-
-Your answer has two parts:
-
-1) <thinking>...</thinking> — your chain of thought. Be exhaustive. For every step you propose:
-   - Identify which invariant(s) the change must respect, or flag "no invariant applies".
-   - Consider at least one alternative implementation and reject it with a concrete reason.
-   - Check the cross-repo flow: does this step's repo live downstream of another repo that also needs to change?
-   - Think about blast radius: what else reads this file / calls this function?
-
-2) After </thinking>, emit ONLY this JSON object:
-
-{
-  "plan": [
-    {
-      "step": 1,
-      "repo": "string (must be one of repos_touched)",
-      "file": "string (repo-relative path)",
-      "action": "edit" | "create",
-      "rationale": "string",
-      "invariants_respected": ["invariant-id", ...],
-      "memory_citations": ["repo:path", ...],
-      "target_branch": "string (same branch in every step)"
-    }
-  ],
-  "sequencing": ["repo", "repo", ...],
-  "blast_radius": "2-3 sentence assessment of what else could break"
-}
-
-Rules:
-- Every step lives on the same "target_branch" (passed to you by the user).
-- Each step must cite at least one invariant id (or include the literal string "no-invariant-applies" in invariants_respected).
-- Each step must cite at least one memory location in memory_citations (format: "repo:path", e.g. "flarebill-api:src/services/billing.ts").
-- "sequencing" lists repos in the order changes must land (e.g. content before api if api reads content).
-- Do NOT include markdown fences around the JSON. Emit raw JSON after </thinking>.`;
-
-export function buildPlanSystem(memory: Memory): string {
-  return `${INSTRUCTIONS}\n\n---\n\nCROSS-REPO MEMORY (authoritative context):\n\n${compactMemory(memory)}`;
-}
-
-export function buildPlanUser(args: {
-  ticket: string;
-  reposTouched: string[];
-  targetBranch: string;
-  classifierReasoning?: string;
-}): string {
-  return [
-    `TICKET:\n\n${args.ticket.trim()}`,
-    `REPOS TOUCHED: ${args.reposTouched.join(", ")}`,
-    `TARGET BRANCH: ${args.targetBranch}`,
-    args.classifierReasoning
-      ? `CLASSIFIER NOTE: ${args.classifierReasoning}`
-      : "",
-    "",
-    "Think out loud between <thinking> tags, then emit the plan JSON.",
-  ]
-    .filter((s) => s.length > 0)
-    .join("\n\n");
-}
-
 import { z } from "zod";
 
-export const PlanStepSchema = z.object({
+// ============================================================================
+// Plan schema v2 — Spec-Driven + Test-Driven structure
+// ============================================================================
+//
+// A v2 plan answers three questions, in order:
+//   1) Spec  — what are we building, in plain language?
+//   2) Tests — how will we know it works? (written FIRST, expected to fail)
+//   3) Implementation — what code makes the tests pass?
+//
+// Every step lives on a single target branch (set by the user on Connect).
+// Each acceptance criterion (AC) is verified by ≥1 test. Each test is made
+// green by ≥1 impl step. The traceability table makes those links explicit
+// so Ship can execute tests-before-impl and the UI can show AC → T → I.
+
+// ---- Base step shape, shared by tests and implementation ----
+
+export const PlanStepBaseSchema = z.object({
+  step: z.number().int().positive(),
+  repo: z.string(),
+  file: z.string(),
+  action: z.enum(["edit", "create"]),
+  rationale: z.string(),
+  invariants_respected: z.array(z.string()).default([]),
+  memory_citations: z.array(z.string()).default([]),
+  target_branch: z.string(),
+});
+export type PlanStepBase = z.infer<typeof PlanStepBaseSchema>;
+
+// ---- Spec (Product agent owns this) ----
+
+export const AcceptanceCriterionSchema = z.object({
+  id: z.string().regex(/^AC-\d+$/),
+  given: z.string(),
+  when: z.string(),
+  then: z.string(),
+});
+export type AcceptanceCriterion = z.infer<typeof AcceptanceCriterionSchema>;
+
+export const ContractSchema = z.object({
+  id: z.string().regex(/^C-\d+$/),
+  kind: z.enum(["http", "function", "data", "event"]),
+  description: z.string(),
+  shape: z.string().optional(),
+});
+export type Contract = z.infer<typeof ContractSchema>;
+
+export const SpecSchema = z.object({
+  summary: z.string(),
+  user_stories: z.array(z.string()).default([]),
+  acceptance_criteria: z.array(AcceptanceCriterionSchema).default([]),
+  contracts: z.array(ContractSchema).default([]),
+  non_goals: z.array(z.string()).default([]),
+  invariants_respected: z.array(z.string()).default([]),
+});
+export type Spec = z.infer<typeof SpecSchema>;
+
+// ---- Tests (QA agent owns this) ----
+
+export const TestStepSchema = PlanStepBaseSchema.extend({
+  test_id: z.string().regex(/^T-\d+$/),
+  ac_ids: z.array(z.string().regex(/^AC-\d+$/)).default([]),
+  test_kind: z.enum(["unit", "integration", "e2e", "contract", "manual"]),
+  agent: z.literal("qa"),
+  expected_initial_state: z.enum(["fails", "n/a-doc-or-config"]),
+});
+export type TestStep = z.infer<typeof TestStepSchema>;
+
+// ---- Implementation (Frontend / Backend / Product own this) ----
+
+export const ImplStepSchema = PlanStepBaseSchema.extend({
+  impl_id: z.string().regex(/^I-\d+$/),
+  test_ids: z.array(z.string().regex(/^T-\d+$/)).default([]),
+  agent: z.enum(["frontend", "backend", "product"]),
+});
+export type ImplStep = z.infer<typeof ImplStepSchema>;
+
+// ---- Traceability ----
+
+export const TraceabilitySchema = z.object({
+  ac_to_tests: z.record(z.array(z.string())).default({}),
+  test_to_impl: z.record(z.array(z.string())).default({}),
+});
+export type Traceability = z.infer<typeof TraceabilitySchema>;
+
+// ---- Top-level v2 plan ----
+
+export const PlanV2Schema = z.object({
+  schema_version: z.literal("2"),
+  spec: SpecSchema,
+  tests: z.array(TestStepSchema).default([]),
+  implementation: z.array(ImplStepSchema).default([]),
+  sequencing: z.array(z.string()).default([]),
+  blast_radius: z.string().default(""),
+  traceability: TraceabilitySchema,
+});
+export type PlanV2 = z.infer<typeof PlanV2Schema>;
+
+// ---- Legacy v1 plan (read-only — kept so old saved plans load) ----
+
+export const PlanV1StepSchema = z.object({
   step: z.number().int().positive(),
   repo: z.string(),
   file: z.string(),
@@ -74,18 +110,57 @@ export const PlanStepSchema = z.object({
   target_branch: z.string(),
 });
 
-export const PlanSchema = z.object({
-  plan: z.array(PlanStepSchema).min(1),
+export const PlanV1Schema = z.object({
+  schema_version: z.literal("1").optional(),
+  plan: z.array(PlanV1StepSchema).min(1),
   sequencing: z.array(z.string()).default([]),
   blast_radius: z.string().default(""),
 });
+export type PlanV1 = z.infer<typeof PlanV1Schema>;
 
+// ---- Union: any saved plan is v2 (preferred) or v1 (legacy read) ----
+
+export const PlanSchema = z.union([PlanV2Schema, PlanV1Schema]);
 export type PlanPayload = z.infer<typeof PlanSchema>;
+
+export function isPlanV2(p: PlanPayload): p is PlanV2 {
+  return (p as { schema_version?: string }).schema_version === "2";
+}
+
+// Flatten a v2 plan into a single ordered execution list (tests first, then
+// implementation). Each entry has a `kind` discriminator so callers can branch
+// on test vs impl. The `step` numbers are renumbered globally so Ship can keep
+// using its existing 1..N progress UI.
+export type UnifiedStep =
+  | ({ kind: "test" } & TestStep)
+  | ({ kind: "impl" } & ImplStep);
+
+export function flattenPlanV2(plan: PlanV2): UnifiedStep[] {
+  const tests = plan.tests.map((t) => ({ kind: "test" as const, ...t }));
+  const impls = plan.implementation.map((i) => ({ kind: "impl" as const, ...i }));
+  const all = [...tests, ...impls];
+  return all.map((s, idx) => ({ ...s, step: idx + 1 }));
+}
+
+// Convenience for UI code: pulls a unified step list from any saved plan.
+// Legacy v1 plans return an empty list — the UI should fall back to its
+// "legacy plan" banner instead of trying to render steps.
+export function getPlanSteps(plan: PlanPayload): UnifiedStep[] {
+  return isPlanV2(plan) ? flattenPlanV2(plan) : [];
+}
+
+// ---- JSON parsers (both shapes) ----
 
 export function parsePlanJson(raw: string): PlanPayload {
   const stripped = stripFences(raw.trim());
   const body = extractJsonObject(stripped);
   return PlanSchema.parse(JSON.parse(body));
+}
+
+export function parsePlanV2Json(raw: string): PlanV2 {
+  const stripped = stripFences(raw.trim());
+  const body = extractJsonObject(stripped);
+  return PlanV2Schema.parse(JSON.parse(body));
 }
 
 function stripFences(s: string): string {
@@ -97,4 +172,57 @@ function extractJsonObject(s: string): string {
   const end = s.lastIndexOf("}");
   if (start === -1 || end === -1 || end < start) return s;
   return s.slice(start, end + 1);
+}
+
+// Validate cross-references in a v2 plan. Returns a list of human-readable
+// problems; empty list means the plan is internally consistent. Used by the
+// synthesizer (which retries on failure) and by the UI (which surfaces gaps
+// in red).
+export function validateTraceability(plan: PlanV2): string[] {
+  const problems: string[] = [];
+  const acIds = new Set(plan.spec.acceptance_criteria.map((a) => a.id));
+  const testIds = new Set(plan.tests.map((t) => t.test_id));
+
+  for (const ac of plan.spec.acceptance_criteria) {
+    const tests = plan.traceability.ac_to_tests[ac.id] ?? [];
+    if (tests.length === 0) {
+      problems.push(`${ac.id} has no tests in traceability.ac_to_tests`);
+    }
+    for (const tid of tests) {
+      if (!testIds.has(tid))
+        problems.push(`${ac.id} references unknown test ${tid}`);
+    }
+  }
+
+  for (const t of plan.tests) {
+    if (t.ac_ids.length === 0) {
+      problems.push(`${t.test_id} has no ac_ids`);
+    }
+    for (const ac of t.ac_ids) {
+      if (!acIds.has(ac))
+        problems.push(`${t.test_id} references unknown ${ac}`);
+    }
+    const impls = plan.traceability.test_to_impl[t.test_id] ?? [];
+    if (impls.length === 0 && t.test_kind !== "manual") {
+      problems.push(
+        `${t.test_id} has no implementation steps in traceability.test_to_impl`,
+      );
+    }
+  }
+
+  const implIds = new Set(plan.implementation.map((i) => i.impl_id));
+  for (const i of plan.implementation) {
+    for (const tid of i.test_ids) {
+      if (!testIds.has(tid))
+        problems.push(`${i.impl_id} references unknown test ${tid}`);
+    }
+  }
+  for (const [tid, list] of Object.entries(plan.traceability.test_to_impl)) {
+    for (const iid of list) {
+      if (!implIds.has(iid))
+        problems.push(`traceability test_to_impl[${tid}] has unknown ${iid}`);
+    }
+  }
+
+  return problems;
 }

@@ -27,6 +27,7 @@ const config: Config = {
         ],
       },
       colors: {
+        // Shadcn-compat tokens (existing pages depend on these)
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -43,6 +44,24 @@ const config: Config = {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+        },
+        // Mesh direct-hex tokens
+        mesh: {
+          bg: "var(--mesh-bg)",
+          "bg-elev": "var(--mesh-bg-elev)",
+          "bg-elev-2": "var(--mesh-bg-elev-2)",
+          "bg-input": "var(--mesh-bg-input)",
+          border: "var(--mesh-border)",
+          "border-hi": "var(--mesh-border-hi)",
+          fg: "var(--mesh-fg)",
+          "fg-dim": "var(--mesh-fg-dim)",
+          "fg-mute": "var(--mesh-fg-mute)",
+          amber: "var(--mesh-amber)",
+          "amber-dim": "var(--mesh-amber-dim)",
+          green: "var(--mesh-green)",
+          red: "var(--mesh-red)",
+          blue: "var(--mesh-blue)",
+          purple: "var(--mesh-purple)",
         },
       },
       borderRadius: {

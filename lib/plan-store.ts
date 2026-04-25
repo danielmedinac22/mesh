@@ -1,12 +1,19 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { PlanSchema, type PlanPayload } from "@/lib/prompts/plan";
+import {
+  PlanSchema,
+  isPlanV2,
+  type PlanPayload,
+  type PlanV2,
+} from "@/lib/prompts/plan";
+import { AgentOutputSchema } from "@/lib/prompts/multi-agent";
 
 const PLANS_DIR = path.join(process.cwd(), ".mesh", "plans");
 
 export const SavedPlanSchema = z.object({
   id: z.string(),
+  projectId: z.string().optional(),
   created_at: z.string(),
   ticket: z.string(),
   classification: z.object({
@@ -17,7 +24,13 @@ export const SavedPlanSchema = z.object({
     summary: z.string(),
     reasoning: z.string(),
   }),
+  // Tolerant of both v2 (current) and v1 (legacy) shapes. The pipeline always
+  // writes v2; v1 is only ever read back from disk for older saved plans.
   plan: PlanSchema,
+  ticket_id: z.string().optional(),
+  base_plan_id: z.string().optional(),
+  agent_outputs: z.array(AgentOutputSchema).optional(),
+  blast_radius: z.string().optional(),
 });
 export type SavedPlan = z.infer<typeof SavedPlanSchema>;
 
@@ -28,16 +41,25 @@ async function ensure(): Promise<void> {
 export async function savePlan(input: {
   ticket: string;
   classification: SavedPlan["classification"];
-  plan: PlanPayload;
+  plan: PlanV2;
+  ticket_id?: string;
+  base_plan_id?: string;
+  agent_outputs?: SavedPlan["agent_outputs"];
+  projectId?: string;
 }): Promise<SavedPlan> {
   await ensure();
   const id = `${Date.now()}-${slug(input.classification.target_branch)}`;
   const saved: SavedPlan = {
     id,
+    projectId: input.projectId,
     created_at: new Date().toISOString(),
     ticket: input.ticket,
     classification: input.classification,
     plan: input.plan,
+    ticket_id: input.ticket_id,
+    base_plan_id: input.base_plan_id,
+    agent_outputs: input.agent_outputs,
+    blast_radius: input.plan.blast_radius || undefined,
   };
   SavedPlanSchema.parse(saved);
   await fs.writeFile(
@@ -76,6 +98,10 @@ export async function getPlan(id: string): Promise<SavedPlan | null> {
     return null;
   }
 }
+
+// Convenience re-export so consumers don't have to import from prompts/plan.
+export { isPlanV2 };
+export type { PlanPayload, PlanV2 };
 
 function slug(s: string): string {
   return s

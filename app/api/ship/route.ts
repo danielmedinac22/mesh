@@ -2,13 +2,16 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getPlan, listPlans, type SavedPlan } from "@/lib/plan-store";
 import { loadMemory, type Memory } from "@/lib/memory";
-import { loadConfig, listRepos } from "@/lib/mesh-state";
+import { getCurrentProjectId, loadConfig, listRepos } from "@/lib/mesh-state";
+import { bootstrapProjects } from "@/lib/migrations";
 import { getEngine } from "@/lib/engine";
 import {
   buildShipSystem,
   buildShipStepUser,
+  buildShipCommitMessage,
   extractShipEdit,
 } from "@/lib/prompts/ship";
+import { flattenPlanV2, isPlanV2, type UnifiedStep } from "@/lib/prompts/plan";
 import {
   readRepoFile,
   writeRepoFile,
@@ -27,12 +30,14 @@ import {
   type ShipStepResult,
 } from "@/lib/ship-session";
 import { openPr } from "@/lib/github-pr";
+import { getTicket, updateTicket } from "@/lib/ticket-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BodySchema = z.object({
   plan_id: z.string().optional(),
+  ticket_id: z.string().optional(),
   force_simulated_prs: z.boolean().optional(),
   max_attempts_per_step: z.number().int().min(1).max(3).optional(),
   // When true, the first attempt per step drops the explicit
@@ -94,20 +99,37 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const saved = parsed.data.plan_id
-    ? await getPlan(parsed.data.plan_id)
+  let planId = parsed.data.plan_id;
+  const ticketId = parsed.data.ticket_id;
+  if (!planId && ticketId) {
+    const t = await getTicket(ticketId);
+    if (t?.plan_id) planId = t.plan_id;
+  }
+  const saved = planId
+    ? await getPlan(planId)
     : (await listPlans())[0] ?? null;
   if (!saved) {
     return Response.json(
       {
         error:
-          "no plan available — run /converse, approve, and Proceed first (persists the plan).",
+          "no plan available — open Build, approve, and Proceed first (persists the plan).",
+      },
+      { status: 409 },
+    );
+  }
+  if (!isPlanV2(saved.plan)) {
+    return Response.json(
+      {
+        error:
+          "this plan was generated with the legacy v1 brain — re-run the build to regenerate it as a v2 SDD/TDD plan before shipping.",
       },
       { status: 409 },
     );
   }
 
-  const memory = await loadMemory();
+  await bootstrapProjects();
+  const projectId = saved.projectId ?? (await getCurrentProjectId());
+  const memory = projectId ? await loadMemory(projectId) : null;
   if (!memory) {
     return Response.json(
       { error: "no memory — run /connect first." },
@@ -125,8 +147,12 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const stepsDoneByShip = { count: 0 };
       const send = (ev: ShipEvent) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        if (!ticketId) return;
+        // Best-effort ticket mirroring. Errors here must not break ship.
+        void mirrorToTicket(ticketId, ev, stepsDoneByShip).catch(() => null);
       };
 
       try {
@@ -137,6 +163,7 @@ export async function POST(req: NextRequest) {
           maxAttempts,
           forceSim,
           loosen,
+          ticketId,
           send,
           startedAt,
         });
@@ -168,10 +195,27 @@ async function runShip(args: {
   maxAttempts: number;
   forceSim: boolean;
   loosen: boolean;
+  ticketId?: string;
   send: (ev: ShipEvent) => void;
   startedAt: number;
 }): Promise<void> {
-  const { saved, memory, mode, maxAttempts, forceSim, loosen, send, startedAt } = args;
+  const {
+    saved,
+    memory,
+    mode,
+    maxAttempts,
+    forceSim,
+    loosen,
+    ticketId,
+    send,
+    startedAt,
+  } = args;
+  if (!isPlanV2(saved.plan)) {
+    throw new Error("ship requires a v2 plan");
+  }
+  const planV2 = saved.plan;
+  const unified: UnifiedStep[] = flattenPlanV2(planV2);
+  const totalSteps = unified.length;
   const engine = getEngine(mode);
   const system = buildShipSystem(memory);
 
@@ -182,7 +226,7 @@ async function runShip(args: {
   // Ensure every target repo is on the right branch; if the Converse step
   // created branches, they already exist. Otherwise, create here.
   const targetBranch = saved.classification.target_branch;
-  const reposTouched = uniqueOrdered(saved.plan.plan.map((s) => s.repo));
+  const reposTouched = uniqueOrdered(unified.map((s) => s.repo));
   for (const name of reposTouched) {
     const rec = repoIndex.get(name);
     if (!rec) continue;
@@ -197,6 +241,7 @@ async function runShip(args: {
   let session: ShipSession = await createSession({
     plan_id: saved.id,
     branch: targetBranch,
+    ticket_id: ticketId,
   });
   send({
     type: "session-start",
@@ -204,11 +249,11 @@ async function runShip(args: {
     plan_id: saved.id,
     branch: targetBranch,
     repos: reposTouched,
-    steps: saved.plan.plan.length,
+    steps: totalSteps,
   });
 
-  for (let i = 0; i < saved.plan.plan.length; i += 1) {
-    const step = saved.plan.plan[i];
+  for (let i = 0; i < unified.length; i += 1) {
+    const step = unified[i];
     const rec = repoIndex.get(step.repo);
     if (!rec) {
       const result: ShipStepResult = {
@@ -251,7 +296,8 @@ async function runShip(args: {
 
       const userPrompt = buildShipStepUser({
         saved,
-        stepIndex: i,
+        step,
+        totalSteps,
         currentContent,
         attempt,
         previousDraft,
@@ -371,7 +417,21 @@ async function runShip(args: {
         // don't treat it as failure — the step was executed correctly.
         result.error = "no-op edit (content identical to HEAD)";
       } else {
-        const message = `[mesh] step ${step.step}/${saved.plan.plan.length} ${step.repo}: ${step.rationale.slice(0, 72)}`;
+        const acIds =
+          step.kind === "impl"
+            ? Array.from(
+                new Set(
+                  planV2.tests
+                    .filter((t) => step.test_ids.includes(t.test_id))
+                    .flatMap((t) => t.ac_ids),
+                ),
+              )
+            : undefined;
+        const message = buildShipCommitMessage({
+          step,
+          totalSteps,
+          acIds,
+        });
         const sha = await commitAll(rec.localPath, message);
         result.commit_sha = sha;
         send({
@@ -392,7 +452,13 @@ async function runShip(args: {
     send({ type: "step-done", step: step.step, attempts: attempt });
   }
 
-  // Open PRs for every repo that had at least one committed step.
+  // Open a draft PR for every repo that had at least one committed step.
+  // The PR is intentionally opened EARLY — before the user validates —
+  // because Mesh leans on GitHub's "PR is a living thread" pattern: every
+  // adjustment Claude makes after this point lands as another commit on
+  // the same branch and shows up in the same PR. The user undrafts the PR
+  // (via /api/ship/approve) when they're satisfied with the diff +
+  // checks + preview.
   const reposWithCommits = new Set(
     session.steps
       .filter((s) => s.commit_sha)
@@ -498,4 +564,54 @@ function uniqueOrdered<T>(arr: T[]): T[] {
     }
   }
   return out;
+}
+
+async function mirrorToTicket(
+  ticketId: string,
+  ev: ShipEvent,
+  stepsDoneCounter: { count: number },
+): Promise<void> {
+  if (ev.type === "session-start") {
+    await updateTicket(ticketId, {
+      status: "in_process",
+      ship_session: {
+        id: ev.session_id,
+        started_at: new Date().toISOString(),
+        steps_total: ev.steps,
+        steps_done: 0,
+      },
+    });
+    return;
+  }
+  if (ev.type === "step-done") {
+    stepsDoneCounter.count += 1;
+    const t = await getTicket(ticketId);
+    if (!t?.ship_session) return;
+    await updateTicket(ticketId, {
+      ship_session: {
+        ...t.ship_session,
+        steps_done: Math.max(t.ship_session.steps_done, stepsDoneCounter.count),
+      },
+    });
+    return;
+  }
+  if (ev.type === "pr-opened") {
+    const t = await getTicket(ticketId);
+    if (!t) return;
+    const prs = [
+      ...t.prs,
+      {
+        repo: ev.repo,
+        url: ev.url,
+        simulated: ev.simulated,
+        number: ev.number,
+        html_url: ev.url,
+      },
+    ];
+    await updateTicket(ticketId, {
+      status: "for_review",
+      prs,
+    });
+    return;
+  }
 }

@@ -30,6 +30,7 @@ const CreateSchema = z.object({
   scopeLabel: z.string().min(1),
   name: z.string().min(1).max(80),
   description: z.string().max(400).optional(),
+  kind: z.enum(["invariant", "pattern", "knowledge"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
       scopeLabel: parsed.data.scopeLabel,
       name: parsed.data.name,
       description: parsed.data.description,
+      kind: parsed.data.kind,
     });
     return Response.json({ skill });
   } catch (err) {
