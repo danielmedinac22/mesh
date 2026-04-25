@@ -4,6 +4,18 @@
 
 Mesh turns an organization's entire codebase into a living entity that a workforce of agents operates on. Tickets and product-value proposals go in; engineering gets production-ready PRs across the whole system that they only have to review — not rewrite.
 
+## Get started
+
+One command, no clone, no manual `.env`. Just a GitHub account and a Claude API key.
+
+```sh
+npx github:danielmedinac22/mesh onboard
+```
+
+The CLI checks prerequisites (`gh`, `git`, Node 20+), prompts for a workspace dir, captures your `ANTHROPIC_API_KEY`, runs `gh auth login --web`, builds the app on first run, and opens Mesh in your browser. Subsequent runs reuse your saved workspace.
+
+Flags: `--workspace <path>` · `--port <n>` · `--yes` (non-interactive, requires `ANTHROPIC_API_KEY` in env).
+
 ## Status
 
 Work in progress. Hackathon build on **Claude Opus 4.7**, shipping April 2026.
