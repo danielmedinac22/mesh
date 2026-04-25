@@ -366,7 +366,13 @@ export async function* runDraftPipeline(input: {
     yield { type: "error", message: "no memory — run /connect first" };
     return;
   }
-  const agents = await loadAgents();
+  const allAgents = await loadAgents();
+  // The multi-agent dispatch is wired to the four base agents. Custom user
+  // agents from Settings are visible elsewhere but inert until the master
+  // prompt and contribution shapes are taught to handle them.
+  const agents = allAgents.filter((a) =>
+    (["frontend", "backend", "product", "qa"] as readonly string[]).includes(a.id),
+  );
   if (agents.length === 0) {
     yield {
       type: "error",
@@ -426,7 +432,7 @@ export async function* runDraftPipeline(input: {
 
     // --- 3. Sub-agents in parallel ---
     const deployedAgents = agents.filter((a) =>
-      dispatch.agents_to_deploy.includes(a.id),
+      (dispatch.agents_to_deploy as readonly string[]).includes(a.id),
     );
     const skillsContext = await buildSkillsContext({
       repos: classification.repos_touched,
@@ -595,8 +601,8 @@ export async function* runAdjustPipeline(input: {
 
     const dispatch: DispatchPayload = {
       agents_to_deploy: (base.agent_outputs ?? []).map(
-        (o) => o.agent as AgentId,
-      ),
+        (o) => o.agent,
+      ) as DispatchPayload["agents_to_deploy"],
       rationale:
         "Adjusting a previous plan. Re-using the agents that produced the base plan.",
       instructions_per_agent: {},

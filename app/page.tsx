@@ -53,7 +53,7 @@ export default function Home() {
         fetch("/api/projects", { cache: "no-store" }).then((r) => r.json()),
         fetch("/api/repos", { cache: "no-store" }).then((r) => r.json()),
         fetch("/api/memory", { cache: "no-store" }).then((r) => r.json()),
-        fetch("/api/converse/tickets", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/build/tickets", { cache: "no-store" }).then((r) => r.json()),
       ]);
       setProjects((projectsRes.projects ?? []) as ProjectRecord[]);
       setCurrentProjectId(projectsRes.currentProjectId ?? null);
@@ -105,7 +105,7 @@ export default function Home() {
       repos={repos}
       memory={memory}
       tickets={tickets}
-      onTicketCreated={() => router.push("/converse")}
+      onTicketCreated={() => router.push("/build")}
       onReload={load}
     />
   );
@@ -662,7 +662,7 @@ function NewTicketInput({
     try {
       const title = v.length > 80 ? v.slice(0, 80) : v;
       const description = v.length > 80 ? v : "";
-      const res = await fetch("/api/converse/tickets", {
+      const res = await fetch("/api/build/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, description, projectId }),
@@ -830,7 +830,7 @@ function OnboardingCard({
         ? `${invariants} invariants in your guard rails.`
         : `${invariants} invariants extracted · review the rules guarding your code.`,
       done: skillsDone,
-      href: "/skills",
+      href: "/settings#skills",
       onClick: () => {
         if (!skillsDone) {
           void patchOnboarding({
@@ -846,7 +846,7 @@ function OnboardingCard({
         ? `${ticketCount} ticket${ticketCount > 1 ? "s" : ""} created.`
         : "Open the ticket composer in Build.",
       done: ticketDone,
-      href: "/converse?new=1",
+      href: "/build?new=1",
     },
     {
       key: "ship",
@@ -1157,7 +1157,7 @@ function FlowRow({
   ).length;
   const prs = tickets.filter((t) => t.status === "for_review").length;
   const connectState = staleCount > 0 ? "ATTN" : "IDLE";
-  const converseState = running > 0 ? "ATTN" : "IDLE";
+  const buildState = running > 0 ? "ATTN" : "IDLE";
   const shipState = prs > 0 ? "ATTN" : "IDLE";
   return (
     <div
@@ -1197,7 +1197,7 @@ function FlowRow({
       >
         <FlowCard n="01" state={connectState} title="Connect" hint={staleCount > 0 ? `${staleCount} needs attention` : "all indexed"} href="/connect" />
         <FlowArrow />
-        <FlowCard n="02" state={converseState} title="Build" hint={running > 0 ? `${running} in progress` : "paste a ticket"} href="/converse" />
+        <FlowCard n="02" state={buildState} title="Build" hint={running > 0 ? `${running} in progress` : "paste a ticket"} href="/build" />
         <FlowArrow />
         <FlowCard n="03" state={shipState} title="Ship" hint={prs > 0 ? `${prs} awaiting review` : "no PRs yet"} href="/ship" />
       </div>
@@ -1309,7 +1309,7 @@ function YourWork({ tickets }: { tickets: TicketEntry[] }) {
           Your work
         </span>
         <Link
-          href="/converse"
+          href="/build"
           className="font-mono"
           style={{
             fontSize: 11,
@@ -1415,7 +1415,7 @@ function YourWork({ tickets }: { tickets: TicketEntry[] }) {
             {shown.slice(0, 8).map((t) => (
               <li key={t.id}>
                 <Link
-                  href={`/converse?ticket=${encodeURIComponent(t.id)}`}
+                  href={`/build?ticket=${encodeURIComponent(t.id)}`}
                   style={{
                     display: "flex",
                     alignItems: "center",

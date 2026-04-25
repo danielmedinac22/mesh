@@ -461,6 +461,41 @@ export function ProjectHome({
               })}
             </ul>
           )}
+          {repos.length > 0 && (
+            <div
+              style={{
+                paddingTop: 8,
+                marginTop: 4,
+                borderTop: `1px solid ${MESH.border}`,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <Link
+                href="/repos"
+                className="font-mono"
+                style={{
+                  fontSize: 11,
+                  color: MESH.fgDim,
+                  textDecoration: "none",
+                  letterSpacing: "0.02em",
+                }}
+              >
+                Manage all repos →
+              </Link>
+              <span
+                className="font-mono"
+                style={{
+                  fontSize: 10.5,
+                  color: MESH.fgMute,
+                  marginLeft: "auto",
+                }}
+              >
+                env vars · branches · remove
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Graph */}

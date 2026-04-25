@@ -5,6 +5,7 @@ export { Sidebar, SIDEBAR_W, type SidebarRepo } from "./sidebar";
 export { TopBar } from "./topbar";
 export { ThinkingPanel, ThinkingPanelRaw, type ThinkingLine } from "./thinking-panel";
 export { AppShell } from "./app-shell";
+export { Tabs, TabList, Tab, TabPanel, type TabId } from "./tabs";
 export { TicketCard } from "./ticket-card";
 export { TicketReadyCard, type TicketReadySummary } from "./ticket-ready-card";
 export {

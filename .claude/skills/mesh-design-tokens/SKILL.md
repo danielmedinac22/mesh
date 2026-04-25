@@ -25,7 +25,7 @@ in `mesh/components/mesh/tokens.ts` and mirrored as CSS variables in
 - Layout shell: wrap pages in `<AppShell title=… subtitle=… topRight=…>`.
   Do not build ad-hoc sidebars or headers.
 - Primitives: `<Pill tone="amber|green|red|dim|default">`, `<Dot color={MESH.green} />`,
-  `<NavIcon kind="connect|converse|ship|skills|home|branch|...">` — reuse
+  `<NavIcon kind="connect|build|ship|skills|home|branch|...">` — reuse
   before introducing new SVGs.
 - Font: body is Inter by default; monospace via the `font-mono` class
   (JetBrains Mono). Don't set `fontFamily` inline.

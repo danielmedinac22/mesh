@@ -129,7 +129,7 @@ export default function ShipPage() {
 
   const loadTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/converse/tickets/ready", { cache: "no-store" });
+      const res = await fetch("/api/build/tickets/ready", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { tickets: ReadyTicket[] };
       setTickets(data.tickets);
@@ -186,7 +186,7 @@ export default function ShipPage() {
     void (async () => {
       try {
         const [ticketRes, plansRes] = await Promise.all([
-          fetch(`/api/converse/tickets/${encodeURIComponent(ticketId)}`, {
+          fetch(`/api/build/tickets/${encodeURIComponent(ticketId)}`, {
             cache: "no-store",
           }),
           fetch("/api/plans", { cache: "no-store" }),
@@ -395,7 +395,7 @@ export default function ShipPage() {
       // Reload active ticket so the labels/prs reflect the new state.
       if (activeTicketId) {
         const cur = activeTicketId;
-        void fetch(`/api/converse/tickets/${encodeURIComponent(cur)}`, {
+        void fetch(`/api/build/tickets/${encodeURIComponent(cur)}`, {
           cache: "no-store",
         })
           .then((r) => (r.ok ? r.json() : null))
@@ -476,7 +476,7 @@ export default function ShipPage() {
       if (activeTicketId) await loadDiff(activeTicketId, adjustRepo);
       // Refresh ticket so the adjustments list updates.
       const r = await fetch(
-        `/api/converse/tickets/${encodeURIComponent(activeTicketId)}`,
+        `/api/build/tickets/${encodeURIComponent(activeTicketId)}`,
         { cache: "no-store" },
       );
       if (r.ok) {

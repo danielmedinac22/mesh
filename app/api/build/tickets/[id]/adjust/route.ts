@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { pipelineToSSE, runAdjustPipeline } from "@/lib/converse-pipeline";
+import { pipelineToSSE, runAdjustPipeline } from "@/lib/build-pipeline";
 import { getTicket } from "@/lib/ticket-store";
 
 export const runtime = "nodejs";

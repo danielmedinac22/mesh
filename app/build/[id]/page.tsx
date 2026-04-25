@@ -112,7 +112,7 @@ export default function TicketDetailPage() {
   const load = useCallback(async () => {
     try {
       const res = await fetch(
-        `/api/converse/tickets/${encodeURIComponent(id)}`,
+        `/api/build/tickets/${encodeURIComponent(id)}`,
         { cache: "no-store" },
       );
       if (res.status === 404) {
@@ -184,7 +184,7 @@ export default function TicketDetailPage() {
     setHandoffBusy(true);
     try {
       const res = await fetch(
-        `/api/converse/tickets/${encodeURIComponent(ticket.id)}/draft`,
+        `/api/build/tickets/${encodeURIComponent(ticket.id)}/draft`,
         { method: "POST" },
       );
       if (res.body) {
@@ -207,7 +207,7 @@ export default function TicketDetailPage() {
       setAdjusting(true);
       try {
         const res = await fetch(
-          `/api/converse/tickets/${encodeURIComponent(ticket.id)}/adjust`,
+          `/api/build/tickets/${encodeURIComponent(ticket.id)}/adjust`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -307,7 +307,7 @@ export default function TicketDetailPage() {
           <div>This ticket does not exist.</div>
           <div>
             <Link
-              href="/converse"
+              href="/build"
               style={{ color: MESH.amber, textDecoration: "none" }}
             >
               ← back to tickets
@@ -355,7 +355,7 @@ export default function TicketDetailPage() {
       }
       topRight={
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <SecondaryButton onClick={() => router.push("/converse")}>
+          <SecondaryButton onClick={() => router.push("/build")}>
             ← back to tickets
           </SecondaryButton>
           {statusPill}

@@ -56,7 +56,7 @@ const COLS: Array<{
   },
 ];
 
-export default function ConverseBoardPage() {
+export default function BuildBoardPage() {
   const [tickets, setTickets] = useState<TicketIndexEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<TopbarStats>({
@@ -70,7 +70,7 @@ export default function ConverseBoardPage() {
 
   const loadTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/converse/tickets", { cache: "no-store" });
+      const res = await fetch("/api/build/tickets", { cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as { tickets: TicketIndexEntry[] };
       setTickets(data.tickets ?? []);
@@ -207,7 +207,7 @@ export default function ConverseBoardPage() {
   const onSubmit = async (p: NewTicketPayload) => {
     setCreating(true);
     try {
-      const res = await fetch("/api/converse/tickets", {
+      const res = await fetch("/api/build/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -326,7 +326,7 @@ export default function ConverseBoardPage() {
                 <TicketCard
                   key={t.id}
                   ticket={t}
-                  href={`/converse/${encodeURIComponent(t.id)}`}
+                  href={`/build/${encodeURIComponent(t.id)}`}
                 />
               ))}
             </KanbanColumn>
@@ -375,7 +375,7 @@ async function streamDraft(
 ): Promise<void> {
   try {
     const res = await fetch(
-      `/api/converse/tickets/${encodeURIComponent(ticketId)}/draft`,
+      `/api/build/tickets/${encodeURIComponent(ticketId)}/draft`,
       { method: "POST" },
     );
     if (!res.ok || !res.body) {

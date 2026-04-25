@@ -177,6 +177,29 @@ export async function createSkill(input: {
   return saveSkill(id, body);
 }
 
+// Persists a complete SKILL.md authored by a generator. The frontmatter is
+// the source of truth — `name` is read from the parsed frontmatter, slugged
+// to produce the directory, and the file is written under the requested
+// scope. Errors if the generated content fails to parse, so the API can
+// surface a clear failure to the UI.
+export async function createSkillFromRaw(input: {
+  scope: SkillScope;
+  scopeLabel: string;
+  raw: string;
+}): Promise<SkillDetail> {
+  const parsed = parseSkillFile(input.raw);
+  const name = parsed.frontmatter.name;
+  const dirName = slug(name);
+  if (!dirName) throw new Error("invalid skill name in frontmatter");
+  const locations = await skillLocations();
+  const loc = locations.find(
+    (l) => l.scope === input.scope && l.label === input.scopeLabel,
+  );
+  if (!loc) throw new Error(`unknown scope: ${input.scope}:${input.scopeLabel}`);
+  const id = buildId(loc, dirName);
+  return saveSkill(id, input.raw);
+}
+
 function defaultSkillBody(opts: {
   name: string;
   description: string;
