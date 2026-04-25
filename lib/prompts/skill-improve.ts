@@ -1,4 +1,5 @@
 import type { Memory } from "@/lib/memory";
+import { summarizeMemoryForPrompt } from "@/lib/prompts/_memory-context";
 
 const INSTRUCTIONS = `You improve Claude Code SKILL.md files. A skill is an instruction file that fires when a diff matches its \`paths\` glob, and nudges the agent toward an invariant.
 
@@ -18,7 +19,7 @@ Return a better SKILL.md. Specifically:
 Output ONLY the full new SKILL.md content. Start with the \`---\` frontmatter. No fences, no prose before or after.`;
 
 export function buildSkillImproveSystem(memory: Memory): string {
-  return `${INSTRUCTIONS}\n\n---\n\nPROJECT MEMORY (context for drawing examples):\n\n${summarizeMemory(memory)}`;
+  return `${INSTRUCTIONS}\n\n---\n\nPROJECT MEMORY (context for drawing examples):\n\n${summarizeMemoryForPrompt(memory)}`;
 }
 
 export function buildSkillImproveUser(args: {
@@ -39,27 +40,3 @@ export function buildSkillImproveUser(args: {
   return parts.join("\n\n");
 }
 
-function summarizeMemory(memory: Memory): string {
-  const lines: string[] = [];
-  lines.push("Repos:");
-  for (const r of memory.repos) {
-    lines.push(`- ${r.name} (${r.symbol_count} symbols)`);
-    for (const inv of r.invariants.slice(0, 3)) {
-      lines.push(
-        `  - invariant ${inv.id}: ${inv.statement.slice(0, 140)}`,
-      );
-      for (const e of inv.evidence.slice(0, 2)) {
-        lines.push(`    evidence: ${e.repo}:${e.path}`);
-      }
-    }
-  }
-  lines.push("Global invariants:");
-  for (const inv of memory.invariants.slice(0, 6)) {
-    lines.push(`- ${inv.id}: ${inv.statement.slice(0, 140)}`);
-  }
-  lines.push("Flows:");
-  for (const f of memory.cross_repo_flows.slice(0, 6)) {
-    lines.push(`- ${f.id}: ${f.repos.join(" -> ")}`);
-  }
-  return lines.join("\n");
-}

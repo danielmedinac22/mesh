@@ -272,7 +272,7 @@ export async function POST(req: NextRequest) {
         });
 
         // Record the addendum on the ticket for traceability — same array
-        // the converse pipeline uses for plan adjustments.
+        // the build pipeline uses for plan adjustments.
         const fresh = await getTicket(ticketId);
         if (fresh) {
           await updateTicket(ticketId, {

@@ -249,6 +249,10 @@ function contributionInstructionsFor(agentId: AgentId): string {
     case "frontend":
     case "backend":
       return ENG_CONTRIBUTION_INSTRUCTIONS;
+    default:
+      // Custom agents are not wired into the dispatch; build-pipeline filters
+      // them out before this is reached. Throw to surface misuse loudly.
+      throw new Error(`no contribution shape for agent: ${agentId}`);
   }
 }
 
@@ -413,6 +417,8 @@ export function parseAgentOutputJson(raw: string, agentId: AgentId): AgentOutput
     case "backend":
       EngContributionSchema.parse(c ?? {});
       break;
+    default:
+      throw new Error(`no contribution shape for agent: ${agentId}`);
   }
   return { ...envelope, agent: agentId };
 }

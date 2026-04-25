@@ -223,7 +223,7 @@ async function runShip(args: {
   const allRepos = await listRepos();
   const repoIndex = new Map(allRepos.map((r) => [r.name, r]));
 
-  // Ensure every target repo is on the right branch; if the Converse step
+  // Ensure every target repo is on the right branch; if the Build step
   // created branches, they already exist. Otherwise, create here.
   const targetBranch = saved.classification.target_branch;
   const reposTouched = uniqueOrdered(unified.map((s) => s.repo));

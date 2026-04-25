@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   listSkills,
   createSkill,
+  createSkillFromRaw,
   skillLocations,
   type SkillScope,
 } from "@/lib/skills";
@@ -25,12 +26,17 @@ export async function GET() {
   });
 }
 
+// Two creation paths share this endpoint:
+//   1. Conversational generator: passes `raw` (a complete SKILL.md). Name and
+//      kind come from the parsed frontmatter — no manual taxonomy choice.
+//   2. Manual fallback: passes `name` (and optional description), gets a
+//      skeleton skill written to disk for the user to edit.
 const CreateSchema = z.object({
-  scope: z.enum(["personal", "project", "repo"]),
+  scope: z.enum(["personal", "project"]),
   scopeLabel: z.string().min(1),
-  name: z.string().min(1).max(80),
+  raw: z.string().min(1).max(60_000).optional(),
+  name: z.string().min(1).max(80).optional(),
   description: z.string().max(400).optional(),
-  kind: z.enum(["invariant", "pattern", "knowledge"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -42,14 +48,25 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  if (!parsed.data.raw && !parsed.data.name) {
+    return Response.json(
+      { error: "provide `raw` (generated SKILL.md) or `name` (skeleton)" },
+      { status: 400 },
+    );
+  }
   try {
-    const skill = await createSkill({
-      scope: parsed.data.scope as SkillScope,
-      scopeLabel: parsed.data.scopeLabel,
-      name: parsed.data.name,
-      description: parsed.data.description,
-      kind: parsed.data.kind,
-    });
+    const skill = parsed.data.raw
+      ? await createSkillFromRaw({
+          scope: parsed.data.scope as SkillScope,
+          scopeLabel: parsed.data.scopeLabel,
+          raw: parsed.data.raw,
+        })
+      : await createSkill({
+          scope: parsed.data.scope as SkillScope,
+          scopeLabel: parsed.data.scopeLabel,
+          name: parsed.data.name!,
+          description: parsed.data.description,
+        });
     return Response.json({ skill });
   } catch (err) {
     return Response.json(

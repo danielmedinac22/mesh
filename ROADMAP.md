@@ -52,7 +52,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 **Research:** Unlikely
 
 **Scope:**
-- Status rail: 4 cards vivas con links a `/repos`, `/skills`, `/converse`, última actividad
+- Status rail: 4 cards vivas con links a `/repos`, `/skills`, `/build`, última actividad
 - Capability cards actuales intactas debajo
 - Item `Home` en sidebar NAV (primer item)
 
@@ -62,7 +62,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 ### Phase 3: Skills con kind (invariant/pattern/knowledge)
 
-**Goal:** Los skills dejan de ser solo prohibiciones. Se clasifican en 3 tipos y alimentan a Converse desde el razonamiento, no como filtro posterior en Ship. El código ya nace respetando el design system, los patrones de DB, los invariants de pricing.
+**Goal:** Los skills dejan de ser solo prohibiciones. Se clasifican en 3 tipos y alimentan a Build desde el razonamiento, no como filtro posterior en Ship. El código ya nace respetando el design system, los patrones de DB, los invariants de pricing.
 **Depends on:** Phase 2 (no bloqueante, pero Skills se ven en el Home rail)
 **Research:** Unlikely
 
@@ -81,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 ### Phase 4: Agentes pre-creados + master dispatch dinámico
 
-**Goal:** Converse deja de ser 1 engine → 1 plan. El master recibe el ticket y decide dinámicamente qué agentes desplegar (frontend, backend, product, qa) con rationale visible. Los sub-agentes razonan con skills como contexto y producen un plan coordinado.
+**Goal:** Build deja de ser 1 engine → 1 plan. El master recibe el ticket y decide dinámicamente qué agentes desplegar (frontend, backend, product, qa) con rationale visible. Los sub-agentes razonan con skills como contexto y producen un plan coordinado.
 **Depends on:** Phase 3 (los sub-agentes consumen `buildSkillsContext`)
 **Research:** Likely (validar cómo inyectar system prompts de agentes al engine existente sin reescribirlo)
 **Research topics:** Estrategia de streaming paralelo multi-engine; formato de recolección de outputs del master
@@ -91,14 +91,14 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 - `lib/agents.ts` con `loadAgents` + `renderAgentRoster`
 - `/api/plan`: master dispatch → JSON `{agents_to_deploy, rationale, instructions_per_agent}` → ejecución paralela
 - Eventos SSE: `dispatch`, `agent-start`, `agent-thinking`, `agent-done`
-- UI Converse: multi-agent panel (columnas por agente desplegado) + rationale visible arriba
+- UI Build: multi-agent panel (columnas por agente desplegado) + rationale visible arriba
 - Tab `Agents` en `/skills` (reusa editor)
 
 **Plans:**
 - [ ] 04-01: Crear los 4 archivos de agentes con system prompts por rol
 - [ ] 04-02: `lib/agents.ts` + `buildMasterDispatchSystem` prompt
 - [ ] 04-03: Refactor `/api/plan/route.ts` con dispatch + paralelización
-- [ ] 04-04: UI multi-agent en `mesh/app/converse/page.tsx`
+- [ ] 04-04: UI multi-agent en `mesh/app/build/page.tsx`
 - [ ] 04-05: Tab `Agents` en `/skills` page
 
 ### Phase 5: Limpieza UI (ContextFooter)
@@ -119,13 +119,13 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 ## Completed Milestones
 
 <details>
-<summary>v0.4 — Connect + Converse + Ship MVP (Hackathon deadline 2026-04-26)</summary>
+<summary>v0.4 — Connect + Build + Ship MVP (Hackathon deadline 2026-04-26)</summary>
 
 ### Phase 0: Hackathon MVP
-**Goal:** Demo de 3 min mostrando los 3 flujos (Connect ingest cross-repo → Converse classify+plan → Ship con skill interception + PRs reales).
+**Goal:** Demo de 3 min mostrando los 3 flujos (Connect ingest cross-repo → Build classify+plan → Ship con skill interception + PRs reales).
 
 - [x] Connect: clone vía gh CLI, ingest con token budgeting, memoria cross-repo (invariants + flows + call graph)
-- [x] Converse: classifier + plan agent con thinking visible
+- [x] Build: classifier + plan agent con thinking visible
 - [x] Ship: ejecución con skills regex runner, branches + commits + PRs reales en GitHub
 - [x] Skills editor con AI improver
 - [x] Motor configurable (raw SDK / agent SDK toggle)

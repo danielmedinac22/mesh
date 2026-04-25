@@ -27,9 +27,8 @@ export type SidebarRepo = {
 const NAV: { id: IconKind; label: string; href: string }[] = [
   { id: "home", label: "Home", href: "/" },
   { id: "connect", label: "Connect", href: "/connect" },
-  { id: "converse", label: "Build", href: "/converse" },
+  { id: "build", label: "Build", href: "/build" },
   { id: "ship", label: "Ship", href: "/ship" },
-  { id: "skills", label: "Skills", href: "/skills" },
   { id: "settings", label: "Settings", href: "/settings" },
 ];
 
@@ -289,32 +288,6 @@ export function Sidebar({
               </Link>
             );
           })}
-          <Link
-            href="/repos"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 5,
-              background: pathname?.startsWith("/repos") ? "rgba(245,165,36,0.08)" : "transparent",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              fontSize: 13,
-              color: pathname?.startsWith("/repos") ? MESH.amber : MESH.fgDim,
-              fontWeight: pathname?.startsWith("/repos") ? 500 : 400,
-              borderLeft: `2px solid ${
-                pathname?.startsWith("/repos") ? MESH.amber : "transparent"
-              }`,
-              paddingLeft: 10,
-              textDecoration: "none",
-            }}
-          >
-            <NavIcon
-              kind="branch"
-              color={pathname?.startsWith("/repos") ? MESH.amber : MESH.fgDim}
-              size={13}
-            />
-            <span>Repos</span>
-          </Link>
         </div>
       </div>
 

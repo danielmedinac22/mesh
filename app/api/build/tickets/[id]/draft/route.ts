@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { pipelineToSSE, runDraftPipeline } from "@/lib/converse-pipeline";
+import { pipelineToSSE, runDraftPipeline } from "@/lib/build-pipeline";
 import { getTicket } from "@/lib/ticket-store";
 
 export const runtime = "nodejs";

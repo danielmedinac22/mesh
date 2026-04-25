@@ -4,8 +4,29 @@ import { z } from "zod";
 
 const AGENTS_DIR = path.join(process.cwd(), ".claude", "agents");
 
-export const AgentIdSchema = z.enum(["frontend", "backend", "product", "qa"]);
+// Agent ids are slug-shaped: lowercase alpha first, then alphanumerics or
+// hyphens. This loosened from a closed enum so users can author additional
+// agents in .claude/agents/ via Settings. The four "base" ids below remain
+// the only ones wired into the multi-agent build dispatch (see
+// build-pipeline.ts) — custom agents are visible in Settings but inert until
+// dispatch is taught to handle them.
+export const AgentIdSchema = z
+  .string()
+  .min(1)
+  .max(48)
+  .regex(/^[a-z][a-z0-9-]*$/, "agent id must be a kebab-case slug");
 export type AgentId = z.infer<typeof AgentIdSchema>;
+
+export const BASE_AGENT_IDS = [
+  "frontend",
+  "backend",
+  "product",
+  "qa",
+] as const;
+export type BaseAgentId = (typeof BASE_AGENT_IDS)[number];
+export function isBaseAgentId(id: string): id is BaseAgentId {
+  return (BASE_AGENT_IDS as readonly string[]).includes(id);
+}
 
 export const AgentFrontmatterSchema = z.object({
   name: AgentIdSchema,
@@ -23,9 +44,9 @@ export type Agent = {
   body: string;
 };
 
-// Loads all agent definitions from .claude/agents/*.md. Order is fixed
-// (frontend, backend, product, qa) regardless of directory iteration order,
-// so the UI and the master dispatch see a stable roster.
+// Loads all agent definitions from .claude/agents/*.md. Base agents come
+// first in fixed order, then user-created agents alphabetically. Both the
+// Settings editor and the master dispatch see a stable roster.
 export async function loadAgents(): Promise<Agent[]> {
   try {
     const entries = await fs.readdir(AGENTS_DIR, { withFileTypes: true });
@@ -46,8 +67,16 @@ export async function loadAgents(): Promise<Agent[]> {
         // skip unparseable agents
       }
     }
-    const order: AgentId[] = ["frontend", "backend", "product", "qa"];
-    agents.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    agents.sort((a, b) => {
+      const ai = (BASE_AGENT_IDS as readonly string[]).indexOf(a.id);
+      const bi = (BASE_AGENT_IDS as readonly string[]).indexOf(b.id);
+      if (ai !== -1 || bi !== -1) {
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      }
+      return a.id.localeCompare(b.id);
+    });
     return agents;
   } catch {
     return [];
@@ -119,6 +148,88 @@ function stripQuotes(s: string): string {
     return s.slice(1, -1);
   }
   return s;
+}
+
+// Reads a single agent file by id. Returns null if missing or unparseable.
+export async function getAgent(id: string): Promise<Agent | null> {
+  const slug = AgentIdSchema.safeParse(id);
+  if (!slug.success) return null;
+  const filePath = path.join(AGENTS_DIR, `${slug.data}.md`);
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = parseAgentFile(raw);
+    return {
+      id: parsed.frontmatter.name,
+      filePath,
+      frontmatter: parsed.frontmatter,
+      body: parsed.body.trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Reads the raw .md (unparsed) for an agent — used by the editor to round-trip
+// frontmatter formatting that our minimal YAML parser drops.
+export async function getAgentRaw(id: string): Promise<string | null> {
+  const slug = AgentIdSchema.safeParse(id);
+  if (!slug.success) return null;
+  const filePath = path.join(AGENTS_DIR, `${slug.data}.md`);
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+// Writes a complete agent .md after validating its frontmatter. The caller
+// must ensure the id in the URL matches frontmatter.name; this function
+// trusts the parsed value.
+export async function saveAgent(raw: string): Promise<Agent> {
+  const parsed = parseAgentFile(raw);
+  await fs.mkdir(AGENTS_DIR, { recursive: true });
+  const filePath = path.join(AGENTS_DIR, `${parsed.frontmatter.name}.md`);
+  await fs.writeFile(filePath, raw, "utf8");
+  return {
+    id: parsed.frontmatter.name,
+    filePath,
+    frontmatter: parsed.frontmatter,
+    body: parsed.body.trim(),
+  };
+}
+
+// Creates a new agent file. Refuses to overwrite an existing id so the user
+// is forced to pick a unique slug.
+export async function createAgentFromRaw(raw: string): Promise<Agent> {
+  const parsed = parseAgentFile(raw);
+  const id = parsed.frontmatter.name;
+  const filePath = path.join(AGENTS_DIR, `${id}.md`);
+  try {
+    await fs.access(filePath);
+    throw new Error(`agent already exists: ${id}`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  await fs.mkdir(AGENTS_DIR, { recursive: true });
+  await fs.writeFile(filePath, raw, "utf8");
+  return {
+    id,
+    filePath,
+    frontmatter: parsed.frontmatter,
+    body: parsed.body.trim(),
+  };
+}
+
+// Deletes a custom agent. Refuses to delete one of the four base agents that
+// the build dispatch depends on.
+export async function deleteAgent(id: string): Promise<void> {
+  if (isBaseAgentId(id)) {
+    throw new Error(`cannot delete base agent: ${id}`);
+  }
+  const slug = AgentIdSchema.safeParse(id);
+  if (!slug.success) throw new Error("invalid agent id");
+  const filePath = path.join(AGENTS_DIR, `${slug.data}.md`);
+  await fs.unlink(filePath);
 }
 
 // Compact roster description the master sees to make the dispatch decision.

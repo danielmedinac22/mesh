@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { AppShell, MESH, Pill } from "@/components/mesh";
+import { SettingsSection } from "@/components/settings/settings-section";
+import { SkillsSection } from "@/components/settings/skills-section";
+import { AgentsSection } from "@/components/settings/agents-section";
 
 type EngineMode = "raw" | "agent";
 
@@ -29,6 +32,19 @@ export default function SettingsPage() {
         setLoaded(true);
       }
     })();
+  }, []);
+
+  // Scroll to the section named in the URL hash on load (e.g. /settings#skills).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return;
+    const el = document.getElementById(hash);
+    if (el) {
+      requestAnimationFrame(() =>
+        el.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
   }, []);
 
   async function save(next: EngineMode) {
@@ -60,20 +76,20 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Settings"
-      subtitle="engine, workspace, env"
+      subtitle="engine · skills · agents"
       topRight={<Pill tone={statusTone}>{statusLabel}</Pill>}
     >
       <div
         style={{
           flex: 1,
           overflow: "auto",
-          padding: "32px 32px 48px",
-          maxWidth: 760,
+          padding: "32px 32px 64px",
+          maxWidth: 1080,
           width: "100%",
           margin: "0 auto",
           display: "flex",
           flexDirection: "column",
-          gap: 32,
+          gap: 40,
         }}
       >
         {error && (
@@ -92,44 +108,12 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <section style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <h2
-              style={{
-                fontSize: 18,
-                fontWeight: 600,
-                letterSpacing: "-0.02em",
-                margin: 0,
-                color: MESH.fg,
-              }}
-            >
-              Engine
-            </h2>
-            <span
-              className="font-mono"
-              style={{
-                fontSize: 11,
-                color: MESH.fgMute,
-                textTransform: "uppercase",
-                letterSpacing: "0.14em",
-              }}
-            >
-              execution backend
-            </span>
-          </div>
-          <p
-            style={{
-              fontSize: 13,
-              color: MESH.fgDim,
-              lineHeight: 1.6,
-              margin: 0,
-            }}
-          >
-            Mesh runs prompts through one of two execution backends. The raw Anthropic SDK is the
-            default — lower latency and direct access to prompt caching. The Claude Agent SDK adds
-            skills and sessions, at a small overhead cost per call.
-          </p>
-
+        <SettingsSection
+          id="engine"
+          title="Engine"
+          kicker="execution backend"
+          caption="Mesh runs prompts through one of two execution backends. The raw Anthropic SDK is the default — lower latency and direct access to prompt caching. The Claude Agent SDK adds skills and sessions, at a small overhead cost per call."
+        >
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <OptionCard
               selected={mode === "raw"}
@@ -167,7 +151,25 @@ export default function SettingsPage() {
               </div>
             </OptionCard>
           </div>
-        </section>
+        </SettingsSection>
+
+        <SettingsSection
+          id="skills"
+          title="Skills"
+          kicker="claude code · .claude/skills/"
+          caption="Skills nudge agents toward project invariants, preferred patterns, and stable facts. Claude picks the kind for you when you draft a new one."
+        >
+          <SkillsSection />
+        </SettingsSection>
+
+        <SettingsSection
+          id="agents"
+          title="Agents"
+          kicker="master dispatch · .claude/agents/"
+          caption="The four base agents (frontend / backend / product / qa) drive the build dispatch. Custom agents are editable here and visible to Claude as roster context."
+        >
+          <AgentsSection />
+        </SettingsSection>
       </div>
     </AppShell>
   );
