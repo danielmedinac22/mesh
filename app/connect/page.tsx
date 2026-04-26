@@ -23,6 +23,7 @@ import {
 import { useReposRefresh } from "@/components/mesh/use-repos-refresh";
 import { ProjectGraph } from "@/components/mesh/project-graph";
 import type { ProjectColor } from "@/components/mesh/project-switcher";
+import { displayRepoNameFor } from "@/lib/repo-display";
 
 type Status = "idle" | "cloning" | "ingesting" | "streaming" | "done" | "error";
 
@@ -203,6 +204,7 @@ export default function ConnectPage() {
   // ── Ingest state (same lifecycle as before) ────────────────────────────
   const [status, setStatus] = useState<Status>("idle");
   const [repos, setRepos] = useState<RepoState[]>([]);
+  const [persistedRegistry, setPersistedRegistry] = useState<PersistedRepo[]>([]);
   const [thinking, setThinking] = useState("");
   const [ttft, setTtft] = useState<number | null>(null);
   const [ingestTokens, setIngestTokens] = useState<number | null>(null);
@@ -482,6 +484,7 @@ export default function ConnectPage() {
       if (!res.ok) return;
       const json = (await res.json()) as { repos: PersistedRepo[] };
       const workspace = (json.repos ?? []).filter((r) => r.name !== "mesh");
+      setPersistedRegistry(workspace);
       setRepos((cur) => {
         if (cur.length > 0) return cur;
         return workspace.map((r) => ({
@@ -1054,6 +1057,7 @@ export default function ConnectPage() {
             retries={retries}
             cloneLog={cloneLog}
             selections={selections}
+            persistedRegistry={persistedRegistry}
             onReset={() => {
               setStatus("idle");
             }}
@@ -1968,9 +1972,7 @@ function LocalTab({
                       fontWeight: 500,
                     }}
                   >
-                    {r.githubOwner && r.githubRepo
-                      ? `${r.githubOwner}/${r.githubRepo}`
-                      : r.name}
+                    {r.githubRepo ?? r.name}
                   </span>
                   {r.isWorktree && <Pill tone="amber">worktree</Pill>}
                   {r.isDirty && <Pill tone="amber">dirty</Pill>}
@@ -2507,6 +2509,7 @@ function IngestLayout({
   retries,
   cloneLog,
   selections,
+  persistedRegistry,
   onReset,
   onAbort,
 }: {
@@ -2523,6 +2526,7 @@ function IngestLayout({
   retries: { attempt: number; reason: string }[];
   cloneLog: string[];
   selections: Selection[];
+  persistedRegistry: PersistedRepo[];
   onReset: () => void;
   onAbort: () => void;
 }) {
@@ -2592,7 +2596,12 @@ function IngestLayout({
         </div>
 
         {repos.map((r) => (
-          <RepoIngestCard key={r.name} r={r} selections={selections} />
+          <RepoIngestCard
+            key={r.name}
+            r={r}
+            selections={selections}
+            displayName={displayRepoNameFor(r.name, persistedRegistry)}
+          />
         ))}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -2694,7 +2703,15 @@ function IngestLayout({
   );
 }
 
-function RepoIngestCard({ r, selections }: { r: RepoState; selections: Selection[] }) {
+function RepoIngestCard({
+  r,
+  selections,
+  displayName,
+}: {
+  r: RepoState;
+  selections: Selection[];
+  displayName?: string;
+}) {
   const tone: "amber" | "green" | "default" =
     r.status === "ready" ? "green" : r.status === "analyzing" ? "amber" : "default";
   const label = r.status === "ready" ? "indexed" : r.status === "analyzing" ? "scanning" : "queued";
@@ -2732,7 +2749,7 @@ function RepoIngestCard({ r, selections }: { r: RepoState; selections: Selection
             whiteSpace: "nowrap",
           }}
         >
-          {r.name}
+          {displayName ?? r.name}
         </span>
         <div style={{ marginLeft: "auto" }}>
           <Pill tone={tone}>{label}</Pill>

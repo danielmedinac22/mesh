@@ -8,6 +8,7 @@ import {
   emitReposChanged,
   useReposRefresh,
 } from "@/components/mesh/use-repos-refresh";
+import { displayRepoName } from "@/lib/repo-display";
 
 type Repo = {
   name: string;
@@ -185,7 +186,7 @@ export default function ReposPage() {
                       lineHeight: 1,
                     }}
                   >
-                    {repo.name}
+                    {displayRepoName(repo)}
                   </Link>
                   <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
                     <NavIcon kind="branch" color={MESH.fgMute} size={11} />
@@ -230,7 +231,7 @@ export default function ReposPage() {
                       onClick={() => {
                         if (removing === repo.name) return;
                         const confirmed = window.confirm(
-                          `Remove "${repo.name}" from Mesh?\n\nThis only unregisters it — local files are not deleted.`,
+                          `Remove "${displayRepoName(repo)}" from Mesh?\n\nThis only unregisters it — local files are not deleted.`,
                         );
                         if (confirmed) void removeRepo(repo.name);
                       }}

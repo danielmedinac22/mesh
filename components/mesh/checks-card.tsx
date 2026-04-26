@@ -14,11 +14,13 @@ export type CheckLine = {
 
 export function ChecksCard({
   repo,
+  displayName,
   lines,
   running,
   onRun,
 }: {
   repo: string;
+  displayName?: string;
   lines: CheckLine[];
   running: boolean;
   onRun: () => void;
@@ -41,7 +43,7 @@ export function ChecksCard({
           className="font-mono"
           style={{ fontSize: 11, color: MESH.fg, fontWeight: 500 }}
         >
-          {repo}
+          {displayName ?? repo}
         </span>
         <span style={{ flex: 1 }} />
         <button

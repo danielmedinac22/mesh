@@ -32,6 +32,18 @@ import {
   type SidebarRepo,
   type TicketReadySummary,
 } from "@/components/mesh";
+import { displayRepoName } from "@/lib/repo-display";
+
+type RepoRecord = {
+  name: string;
+  localPath: string;
+  githubOwner?: string;
+  githubRepo?: string;
+  defaultBranch: string;
+  connectedAt: string;
+  filesIndexed?: number;
+  tokensEst?: number;
+};
 
 type ReadyTicket = {
   id: string;
@@ -133,6 +145,28 @@ export default function ShipPage() {
   const [adjustRunning, setAdjustRunning] = useState(false);
   const [adjustEvents, setAdjustEvents] = useState<AdjustEvent[]>([]);
   const [cinemaMode, setCinemaMode] = useState<CinemaMode>("off");
+  const [repoRegistry, setRepoRegistry] = useState<RepoRecord[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/repos", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as { repos: RepoRecord[] };
+        setRepoRegistry(json.repos ?? []);
+      } catch {
+        // silent — labels fall back to raw name
+      }
+    })();
+  }, []);
+
+  const nameToDisplay = useMemo(
+    () =>
+      Object.fromEntries(
+        repoRegistry.map((r) => [r.name, displayRepoName(r)] as const),
+      ),
+    [repoRegistry],
+  );
   // forceSim removed: PR creation happens during Build's "Proceed Ship",
   // and approve/discard already honor each PR's `simulated` flag.
 
@@ -778,6 +812,7 @@ export default function ShipPage() {
             <Workspace
               ticket={activeTicket}
               repos={repos}
+              nameToDisplay={nameToDisplay}
               diffByRepo={diffByRepo}
               diffLoading={diffLoading}
               onReloadDiff={(repo) =>
@@ -986,6 +1021,7 @@ function EmptyState() {
 function Workspace({
   ticket,
   repos,
+  nameToDisplay,
   diffByRepo,
   diffLoading,
   onReloadDiff,
@@ -1008,6 +1044,7 @@ function Workspace({
 }: {
   ticket: FullTicket;
   repos: string[];
+  nameToDisplay: Record<string, string>;
   diffByRepo: Record<string, { files: DiffFileView[]; base: string; branch: string } | null>;
   diffLoading: boolean;
   onReloadDiff: (repo: string) => void;
@@ -1067,7 +1104,7 @@ function Workspace({
               cursor: "pointer",
             }}
           >
-            {r}
+            {nameToDisplay[r] ?? r}
           </button>
         ))}
         <span style={{ flex: 1 }} />
@@ -1178,6 +1215,7 @@ function Workspace({
             <ChecksCard
               key={r}
               repo={r}
+              displayName={nameToDisplay[r]}
               lines={checksByRepo[r] ?? []}
               running={!!checksRunning[r]}
               onRun={() => onRunChecks(r)}
@@ -1198,6 +1236,7 @@ function Workspace({
               <PreviewServerCard
                 key={r}
                 line={line}
+                displayName={nameToDisplay[r]}
                 busy={!!previewBusy[r]}
                 envWarning={envWarnByRepo[r] ?? null}
                 envHref={`/repos/${encodeURIComponent(r)}/env`}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppShell, MESH, Pill, ThinkingPanelRaw } from "@/components/mesh";
+import { displayRepoName } from "@/lib/repo-display";
 
 type Row = { id: string; key: string; value: string };
 
@@ -27,6 +28,7 @@ export default function RepoEnvPage() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [repoLabel, setRepoLabel] = useState<string | null>(null);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importRaw, setImportRaw] = useState("");
@@ -53,6 +55,23 @@ export default function RepoEnvPage() {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setLoading(false);
+      }
+    })();
+  }, [name]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`/api/repos/${encodeURIComponent(name)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          repo?: { name: string; githubRepo?: string };
+        };
+        if (json.repo) setRepoLabel(displayRepoName(json.repo));
+      } catch {
+        // breadcrumb falls back to raw name
       }
     })();
   }, [name]);
@@ -196,7 +215,7 @@ export default function RepoEnvPage() {
             repos
           </Link>
           <span style={{ color: MESH.fgMute }}>/</span>
-          <span>{name}</span>
+          <span>{repoLabel ?? name}</span>
           <span style={{ color: MESH.fgMute }}>/</span>
           <span className="font-mono" style={{ fontSize: 11, color: MESH.fgMute }}>
             env

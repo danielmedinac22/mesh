@@ -49,6 +49,7 @@ export type PreviewEnvWarning = {
 
 export function PreviewServerCard({
   line,
+  displayName,
   busy,
   onStart,
   onStop,
@@ -58,6 +59,7 @@ export function PreviewServerCard({
   onDismissWarning,
 }: {
   line: PreviewLine;
+  displayName?: string;
   busy: boolean;
   onStart: () => void;
   onStop: () => void;
@@ -99,7 +101,7 @@ export function PreviewServerCard({
           className="font-mono"
           style={{ fontSize: 11.5, color: MESH.fg, fontWeight: 500 }}
         >
-          {line.repo}
+          {displayName ?? line.repo}
         </span>
         <Pill tone={TONE[line.status]}>{LABEL[line.status]}</Pill>
         <span style={{ flex: 1 }} />

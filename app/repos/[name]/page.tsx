@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppShell, MESH, Pill } from "@/components/mesh";
 import type { RepoBrief } from "@/lib/memory";
+import { displayRepoName } from "@/lib/repo-display";
 
 type RepoRecord = {
   name: string;
@@ -61,7 +62,7 @@ export default function RepoOverviewPage() {
             repos
           </Link>
           <span style={{ color: MESH.fgMute }}>/</span>
-          <span>{name}</span>
+          <span>{repo ? displayRepoName(repo) : name}</span>
         </span>
       }
       subtitle={<>Repository overview</>}
