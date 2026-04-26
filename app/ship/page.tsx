@@ -15,6 +15,7 @@ import {
   Dot,
   Kbd,
   MESH,
+  MESH_MOTION,
   ModalShell,
   ModalLabel,
   NavIcon,
@@ -1173,6 +1174,16 @@ function Workspace({
       <Section
         label="Diff"
         sub={`compare ${diff?.branch ?? activeRepo} vs ${diff?.base ?? "base"}`}
+        collapsible
+        defaultCollapsed
+        collapsedSummary={(() => {
+          if (!activeRepo) return "no repo selected";
+          if (diff === undefined) return "loading…";
+          if (diff === null) return "failed to load";
+          const additions = diff.files.reduce((n, f) => n + f.additions, 0);
+          const deletions = diff.files.reduce((n, f) => n + f.deletions, 0);
+          return `${diff.files.length} file${diff.files.length === 1 ? "" : "s"} · +${additions} −${deletions}`;
+        })()}
         right={
           <button
             type="button"
@@ -1209,7 +1220,21 @@ function Workspace({
         )}
       </Section>
 
-      <Section label="Checks" sub="typecheck + lint per repo">
+      <Section
+        label="Checks"
+        sub="typecheck + lint per repo"
+        collapsible
+        defaultCollapsed
+        collapsedSummary={(() => {
+          const running = repos.filter((r) => checksRunning[r]).length;
+          if (running > 0)
+            return `${running} running · ${repos.length} repo${repos.length === 1 ? "" : "s"}`;
+          const ran = repos.filter((r) => (checksByRepo[r]?.length ?? 0) > 0).length;
+          if (ran === 0)
+            return `${repos.length} repo${repos.length === 1 ? "" : "s"} · idle`;
+          return `${ran}/${repos.length} ran`;
+        })()}
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {repos.map((r) => (
             <ChecksCard
@@ -1224,7 +1249,23 @@ function Workspace({
         </div>
       </Section>
 
-      <Section label="Preview" sub="dev server with this repo's env vars">
+      <Section
+        label="Preview"
+        sub="dev server with this repo's env vars"
+        collapsible
+        defaultCollapsed
+        collapsedSummary={(() => {
+          const live = repos.filter(
+            (r) =>
+              previewByRepo[r] &&
+              previewByRepo[r]!.status !== "idle" &&
+              previewByRepo[r]!.status !== "stopped",
+          ).length;
+          if (live > 0)
+            return `${live} running · ${repos.length} repo${repos.length === 1 ? "" : "s"}`;
+          return `${repos.length} repo${repos.length === 1 ? "" : "s"} · idle`;
+        })()}
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {repos.map((r) => {
             const line: PreviewLine = previewByRepo[r] ?? {
@@ -1254,6 +1295,9 @@ function Workspace({
         <Section
           label="Adjustments"
           sub={`${ticket.adjustments.length} addendum${ticket.adjustments.length === 1 ? "" : "s"}`}
+          collapsible
+          defaultCollapsed
+          collapsedSummary={`${ticket.adjustments.length} addendum${ticket.adjustments.length === 1 ? "" : "s"}`}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {ticket.adjustments
@@ -1448,9 +1492,11 @@ function PrSummary({
               fontSize: 11,
               color: MESH.amber,
               textDecoration: "underline",
-              wordBreak: "break-all",
               flex: 1,
               minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {pr.url}
@@ -1466,42 +1512,141 @@ function Section({
   sub,
   right,
   children,
+  collapsible,
+  defaultCollapsed,
+  collapsedSummary,
 }: {
   label: string;
   sub?: string;
   right?: React.ReactNode;
   children: React.ReactNode;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
+  collapsedSummary?: React.ReactNode;
 }) {
-  return (
-    <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          paddingBottom: 8,
-          borderBottom: `1px solid ${MESH.border}`,
-        }}
-      >
+  const [collapsed, setCollapsed] = useState<boolean>(
+    collapsible ? !!defaultCollapsed : false,
+  );
+  const isCollapsed = !!collapsible && collapsed;
+
+  const toggleStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 12,
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    margin: 0,
+    cursor: collapsible ? "pointer" : "default",
+    textAlign: "left",
+    font: "inherit",
+    color: "inherit",
+    minWidth: 0,
+    flex: 1,
+  };
+
+  const labelGroup = (
+    <>
+      <span
+        aria-hidden
+        style={{ width: 4, height: 14, background: MESH.amber, borderRadius: 1 }}
+      />
+      {collapsible && (
         <span
           aria-hidden
-          style={{ width: 4, height: 14, background: MESH.amber, borderRadius: 1 }}
-        />
-        <span className="mesh-hud" style={{ color: MESH.fgDim }}>
-          {label}
+          style={{
+            display: "inline-flex",
+            transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+            transition: `transform ${MESH_MOTION.fast} ${MESH_MOTION.ease}`,
+            color: MESH.fgDim,
+          }}
+        >
+          <NavIcon kind="caret" size={12} color={MESH.fgDim} />
         </span>
-        {sub && (
-          <span
-            className="mesh-mono"
-            style={{ fontSize: 11, color: MESH.fgMute }}
+      )}
+      <span className="mesh-hud" style={{ color: MESH.fgDim }}>
+        {label}
+      </span>
+      {isCollapsed
+        ? collapsedSummary && (
+            <span
+              className="mesh-mono"
+              style={{
+                fontSize: 11,
+                color: MESH.fgMute,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              {collapsedSummary}
+            </span>
+          )
+        : sub && (
+            <span
+              className="mesh-mono"
+              style={{
+                fontSize: 11,
+                color: MESH.fgMute,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              {sub}
+            </span>
+          )}
+    </>
+  );
+
+  const headerStyle: React.CSSProperties = collapsible
+    ? {
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 14px",
+        background: MESH.bgElev,
+        border: `1px solid ${MESH.border}`,
+        borderRadius: 6,
+        transition: `border-color ${MESH_MOTION.fast} ${MESH_MOTION.ease}`,
+      }
+    : {
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        paddingBottom: 8,
+        borderBottom: `1px solid ${MESH.border}`,
+      };
+
+  return (
+    <section
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: collapsible ? 10 : 12,
+      }}
+    >
+      <div style={headerStyle}>
+        {collapsible ? (
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-expanded={!isCollapsed}
+            style={toggleStyle}
           >
-            {sub}
-          </span>
+            {labelGroup}
+          </button>
+        ) : (
+          <>
+            {labelGroup}
+            <span style={{ flex: 1 }} />
+          </>
         )}
-        <span style={{ flex: 1 }} />
-        {right}
+        {!isCollapsed && right}
       </div>
-      {children}
+      {!isCollapsed && children}
     </section>
   );
 }
