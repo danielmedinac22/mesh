@@ -229,9 +229,27 @@ export default function BrainPage() {
     >
       <div
         style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          alignItems: "stretch",
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "auto",
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+      <div
+        style={{
           maxWidth: 980,
           width: "100%",
-          margin: "0 auto",
+          margin: 0,
           padding: "24px 24px 64px",
           display: "flex",
           flexDirection: "column",
@@ -338,23 +356,25 @@ export default function BrainPage() {
           />
         )}
       </div>
+        </div>
 
-      <CinemaThinking
-        mode={cinemaMode}
-        text={thinkingText}
-        active={streamingActive}
-        tokens={thinkingText.length}
-        phase={currentPhase}
-        phases={phases}
-        title={
-          <span>
-            Learning about you<span style={{ color: MESH.amber }}>.</span>
-          </span>
-        }
-        subtitle={`${roleLabel} · ${selectedSources.length} source${selectedSources.length === 1 ? "" : "s"}`}
-        onDismiss={() => setCinemaMode("docked")}
-        onExpand={() => setCinemaMode("cinema")}
-      />
+        <CinemaThinking
+          mode={cinemaMode}
+          text={thinkingText}
+          active={streamingActive}
+          tokens={thinkingText.length}
+          phase={currentPhase}
+          phases={phases}
+          title={
+            <span>
+              Learning about you<span style={{ color: MESH.amber }}>.</span>
+            </span>
+          }
+          subtitle={`${roleLabel} · ${selectedSources.length} source${selectedSources.length === 1 ? "" : "s"}`}
+          onDismiss={() => setCinemaMode("off")}
+          onExpand={() => setCinemaMode("cinema")}
+        />
+      </div>
     </AppShell>
   );
 }

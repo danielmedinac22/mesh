@@ -11,7 +11,12 @@ type DraftEvent =
   | { type: "classify-thinking"; delta: string }
   | { type: "classification" }
   | { type: "thinking"; delta: string }
-  | { type: "dispatch"; agents_to_deploy?: AgentId[] }
+  | {
+      type: "dispatch";
+      agents_to_deploy?: AgentId[];
+      rationale?: string;
+      instructions_per_agent?: Record<AgentId, string>;
+    }
   | { type: "agent-start"; agent: AgentId; role: string }
   | { type: "agent-thinking"; agent: AgentId; delta: string }
   | { type: "agent-done"; agent: AgentId }
@@ -21,6 +26,12 @@ type DraftEvent =
   | { type: "plan-saved" }
   | { type: "done"; duration_ms?: number }
   | { type: "error"; message: string };
+
+export type DispatchSummary = {
+  agents: AgentId[];
+  rationale: string;
+  instructionsPerAgent: Record<AgentId, string>;
+};
 
 const BASE_PHASES: CinemaPhase[] = [
   { id: "classify", label: "Classify", tone: "amber" },
@@ -42,6 +53,7 @@ export type DraftCinemaState = {
   error: string | null;
   doneAt: number | null;
   agentsActive: Set<AgentId>;
+  dispatchSummary: DispatchSummary | null;
 };
 
 export type DraftCinema = DraftCinemaState & {
@@ -62,6 +74,7 @@ const initial: DraftCinemaState = {
   error: null,
   doneAt: null,
   agentsActive: new Set(),
+  dispatchSummary: null,
 };
 
 export function useDraftCinema(): DraftCinema {
@@ -138,12 +151,18 @@ function apply(state: DraftCinemaState, ev: DraftEvent): DraftCinemaState {
         tokens: state.tokens + ev.delta.length,
       };
     case "dispatch": {
-      const agentList = ev.agents_to_deploy?.join(", ") ?? "";
+      const agents = ev.agents_to_deploy ?? [];
+      const agentList = agents.join(", ");
       return {
         ...state,
+        dispatchSummary: {
+          agents,
+          rationale: ev.rationale ?? "",
+          instructionsPerAgent: ev.instructions_per_agent ?? {},
+        },
         text: appendBlock(
           state.text,
-          `[dispatching ${ev.agents_to_deploy?.length ?? 0} agents${agentList ? ` · ${agentList}` : ""}]`,
+          `[dispatching ${agents.length} agents${agentList ? ` · ${agentList}` : ""}]`,
         ),
       };
     }

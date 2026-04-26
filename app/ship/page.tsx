@@ -27,6 +27,7 @@ import {
   type CinemaMode,
   type CinemaPhase,
   type DiffFileView,
+  type PreviewEnvWarning,
   type PreviewLine,
   type SidebarRepo,
   type TicketReadySummary,
@@ -121,6 +122,9 @@ export default function ShipPage() {
     {},
   );
   const [previewBusy, setPreviewBusy] = useState<Record<string, boolean>>({});
+  const [envWarnByRepo, setEnvWarnByRepo] = useState<
+    Record<string, PreviewEnvWarning | null>
+  >({});
   const [approving, setApproving] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
@@ -284,9 +288,43 @@ export default function ShipPage() {
 
   const previewControllers = useRef<Record<string, AbortController | null>>({});
 
-  async function startPreview(repo: string) {
+  async function startPreview(repo: string, opts?: { force?: boolean }) {
     if (!activeTicketId) return;
     setPreviewBusy((prev) => ({ ...prev, [repo]: true }));
+    if (!opts?.force) {
+      try {
+        const checkRes = await fetch("/api/preview/check-env", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo }),
+        });
+        if (checkRes.ok) {
+          const check = (await checkRes.json()) as {
+            ok: boolean;
+            missing: string[];
+            source: PreviewEnvWarning["source"];
+            exampleFile: string | null;
+            scannedFiles: number | null;
+          };
+          if (!check.ok && check.missing.length > 0) {
+            setEnvWarnByRepo((prev) => ({
+              ...prev,
+              [repo]: {
+                missing: check.missing,
+                source: check.source,
+                exampleFile: check.exampleFile,
+                scannedFiles: check.scannedFiles,
+              },
+            }));
+            setPreviewBusy((prev) => ({ ...prev, [repo]: false }));
+            return;
+          }
+        }
+      } catch {
+        // best-effort — fall through and let preview attempt itself
+      }
+    }
+    setEnvWarnByRepo((prev) => ({ ...prev, [repo]: null }));
     setPreviewByRepo((prev) => ({
       ...prev,
       [repo]: {
@@ -750,7 +788,12 @@ export default function ShipPage() {
               onRunChecks={runChecks}
               previewByRepo={previewByRepo}
               previewBusy={previewBusy}
-              onStartPreview={startPreview}
+              envWarnByRepo={envWarnByRepo}
+              onStartPreview={(r) => startPreview(r)}
+              onForceStartPreview={(r) => startPreview(r, { force: true })}
+              onDismissEnvWarn={(r) =>
+                setEnvWarnByRepo((prev) => ({ ...prev, [r]: null }))
+              }
               onStopPreview={stopPreview}
               onApprove={approve}
               onDiscard={discard}
@@ -951,7 +994,10 @@ function Workspace({
   onRunChecks,
   previewByRepo,
   previewBusy,
+  envWarnByRepo,
   onStartPreview,
+  onForceStartPreview,
+  onDismissEnvWarn,
   onStopPreview,
   onApprove,
   onDiscard,
@@ -970,7 +1016,10 @@ function Workspace({
   onRunChecks: (repo: string) => void;
   previewByRepo: Record<string, PreviewLine>;
   previewBusy: Record<string, boolean>;
+  envWarnByRepo: Record<string, PreviewEnvWarning | null>;
   onStartPreview: (repo: string) => void;
+  onForceStartPreview: (repo: string) => void;
+  onDismissEnvWarn: (repo: string) => void;
   onStopPreview: (repo: string) => void;
   onApprove: () => void;
   onDiscard: () => void;
@@ -1150,6 +1199,10 @@ function Workspace({
                 key={r}
                 line={line}
                 busy={!!previewBusy[r]}
+                envWarning={envWarnByRepo[r] ?? null}
+                envHref={`/repos/${encodeURIComponent(r)}/env`}
+                onForceStart={() => onForceStartPreview(r)}
+                onDismissWarning={() => onDismissEnvWarn(r)}
                 onStart={() => onStartPreview(r)}
                 onStop={() => onStopPreview(r)}
               />
@@ -1294,6 +1347,9 @@ function PrSummary({
               color: MESH.fg,
               letterSpacing: "-0.02em",
               lineHeight: 1.15,
+              minWidth: 0,
+              wordBreak: "break-word",
+              overflowWrap: "anywhere",
             }}
           >
             {ticket.title}
@@ -1305,9 +1361,11 @@ function PrSummary({
             {ticket.id} · {ticket.labels.join(" · ") || "no labels"}
           </span>
         </div>
-        <Pill tone={isApproved ? "green" : "amber"}>
-          {isApproved ? "ready to merge" : "awaiting review"}
-        </Pill>
+        <div style={{ flexShrink: 0 }}>
+          <Pill tone={isApproved ? "green" : "amber"}>
+            {isApproved ? "ready to merge" : "awaiting review"}
+          </Pill>
+        </div>
       </header>
       {ticket.prs.map((pr) => (
         <div

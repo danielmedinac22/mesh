@@ -34,7 +34,11 @@ export {
   type DiffHunkLine,
 } from "./diff-viewer";
 export { ChecksCard, type CheckLine } from "./checks-card";
-export { PreviewServerCard, type PreviewLine } from "./preview-server-card";
+export {
+  PreviewServerCard,
+  type PreviewLine,
+  type PreviewEnvWarning,
+} from "./preview-server-card";
 export { KanbanColumn, type KanbanColumnTone } from "./kanban-column";
 export {
   ModalShell,

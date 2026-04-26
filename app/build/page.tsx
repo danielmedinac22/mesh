@@ -318,7 +318,7 @@ export default function BuildBoardPage() {
               count={bucket.length}
               index={i}
               footer={
-                c.status === "drafted" && bucket.length === 0 ? (
+                c.status === "drafted" && bucket.length === 0 && !cinema.active ? (
                   <DraftHint />
                 ) : null
               }
@@ -352,6 +352,7 @@ export default function BuildBoardPage() {
         tokens={cinema.tokens}
         phase={cinema.phase}
         phases={cinema.phases}
+        dispatchSummary={cinema.dispatchSummary}
         title={cinemaSubtitle ? "Drafting cross-repo plan" : "Extended thinking"}
         subtitle={cinemaSubtitle}
         meta={
@@ -571,7 +572,7 @@ function DockedChip({
           className="mesh-hud"
           style={{ color: MESH.fgMute }}
         >
-          {phase} · ~{tokensLabel} thinking
+          {phase} · ~{tokensLabel} tokens
         </span>
       </div>
       <button

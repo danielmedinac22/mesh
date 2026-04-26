@@ -40,16 +40,31 @@ const LABEL: Record<PreviewLine["status"], string> = {
   unavailable: "no dev script",
 };
 
+export type PreviewEnvWarning = {
+  missing: string[];
+  source: "env-example" | "code-scan" | "none";
+  exampleFile?: string | null;
+  scannedFiles?: number | null;
+};
+
 export function PreviewServerCard({
   line,
   busy,
   onStart,
   onStop,
+  envWarning,
+  envHref,
+  onForceStart,
+  onDismissWarning,
 }: {
   line: PreviewLine;
   busy: boolean;
   onStart: () => void;
   onStop: () => void;
+  envWarning?: PreviewEnvWarning | null;
+  envHref?: string;
+  onForceStart?: () => void;
+  onDismissWarning?: () => void;
 }) {
   const [logsOpen, setLogsOpen] = useState(false);
   const dotColor =
@@ -127,6 +142,129 @@ export function PreviewServerCard({
           </button>
         )}
       </div>
+      {envWarning && envWarning.missing.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            padding: "10px 12px",
+            background: "rgba(245,165,36,0.06)",
+            border: `1px solid ${MESH.amber}55`,
+            borderRadius: 6,
+          }}
+        >
+          <div
+            className="mesh-hud"
+            style={{
+              color: MESH.amber,
+              letterSpacing: "0.16em",
+              fontSize: 10,
+            }}
+          >
+            MESH FOUND {envWarning.missing.length} ENV KEY
+            {envWarning.missing.length === 1 ? "" : "S"} THIS REPO NEEDS
+          </div>
+          <div
+            className="font-mono"
+            style={{
+              fontSize: 11,
+              color: MESH.fgDim,
+              lineHeight: 1.55,
+            }}
+          >
+            {envWarning.source === "env-example"
+              ? `From ${envWarning.exampleFile ?? ".env.example"}`
+              : envWarning.source === "code-scan"
+                ? `Detected by scanning ${envWarning.scannedFiles ?? 0} source files`
+                : "No env source found"}
+            . Set these to make the preview boot reliably.
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+            }}
+          >
+            {envWarning.missing.map((k) => (
+              <span
+                key={k}
+                className="font-mono"
+                style={{
+                  fontSize: 10.5,
+                  padding: "3px 8px",
+                  borderRadius: 4,
+                  background: MESH.bg,
+                  border: `1px solid ${MESH.amber}40`,
+                  color: MESH.amber,
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {k}
+              </span>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {envHref && (
+              <a
+                href={envHref}
+                className="font-mono"
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  border: `1px solid ${MESH.amber}`,
+                  background: MESH.amber,
+                  color: "#0B0B0C",
+                  fontSize: 11,
+                  textDecoration: "none",
+                  fontWeight: 600,
+                }}
+              >
+                set vars →
+              </a>
+            )}
+            {onForceStart && (
+              <button
+                type="button"
+                onClick={onForceStart}
+                className="font-mono"
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  border: `1px solid ${MESH.border}`,
+                  background: "transparent",
+                  color: MESH.fgDim,
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                start anyway
+              </button>
+            )}
+            {onDismissWarning && (
+              <button
+                type="button"
+                onClick={onDismissWarning}
+                aria-label="Dismiss warning"
+                className="font-mono"
+                style={{
+                  marginLeft: "auto",
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  background: "transparent",
+                  border: "none",
+                  color: MESH.fgMute,
+                  fontSize: 10,
+                  cursor: "pointer",
+                }}
+              >
+                dismiss
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {line.url && line.status === "ready" && (
         <div
           style={{
