@@ -50,6 +50,8 @@ export const RepoRecordSchema = z.object({
 });
 export type RepoRecord = z.infer<typeof RepoRecordSchema>;
 
+export { displayRepoName, displayRepoNameFor } from "./repo-display";
+
 export const ProjectColorSchema = z.enum([
   "amber",
   "violet",
