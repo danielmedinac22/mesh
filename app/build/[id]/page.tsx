@@ -8,6 +8,7 @@ import {
   AppShell,
   Dot,
   MESH,
+  MESH_MOTION,
   ModalLabel,
   Pill,
   PrimaryButton,
@@ -18,6 +19,7 @@ import {
 import { NavIcon } from "@/components/mesh/icons";
 import type { TicketRecord } from "@/lib/ticket-store";
 import type { SavedPlan } from "@/lib/plan-store";
+import { displayRepoName } from "@/lib/repo-display";
 import {
   flattenPlanV2,
   isPlanV2,
@@ -108,6 +110,26 @@ export default function TicketDetailPage() {
     steps: [],
     thinkingByStep: {},
   });
+  const [repoLabels, setRepoLabels] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/repos", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          repos: { name: string; githubRepo?: string }[];
+        };
+        const map: Record<string, string> = {};
+        for (const r of json.repos ?? []) {
+          map[r.name] = displayRepoName(r);
+        }
+        setRepoLabels(map);
+      } catch {
+        // silent — labels fall back to raw name
+      }
+    })();
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -640,25 +662,81 @@ export default function TicketDetailPage() {
               <>
                 <span
                   className="font-mono"
-                  style={{ fontSize: 10, color: MESH.green }}
+                  style={{
+                    fontSize: 10,
+                    color: MESH.green,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.14em",
+                  }}
                 >
                   {ticket.prs.length} PR{ticket.prs.length === 1 ? "" : "s"} open
                 </span>
-                <span style={{ flex: 1 }} />
-                {ticket.prs.map((pr) => (
-                  <a
-                    key={pr.url}
-                    href={pr.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ textDecoration: "none" }}
-                  >
-                    <SecondaryButton>
-                      view {pr.repo}
-                      {pr.number ? ` #${pr.number}` : ""}
-                    </SecondaryButton>
-                  </a>
-                ))}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexWrap: "wrap",
+                    flex: 1,
+                    minWidth: 0,
+                  }}
+                >
+                  {ticket.prs.map((pr) => {
+                    const label = repoLabels[pr.repo] ?? pr.repo;
+                    return (
+                      <a
+                        key={pr.url}
+                        href={pr.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`${pr.repo}${pr.number ? ` #${pr.number}` : ""}`}
+                        className="pr-chip"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "4px 8px",
+                          border: `1px solid ${MESH.border}`,
+                          borderRadius: 4,
+                          textDecoration: "none",
+                          color: MESH.fgDim,
+                          fontSize: 10,
+                          maxWidth: 220,
+                          minWidth: 0,
+                          transition: `color ${MESH_MOTION.fast} ${MESH_MOTION.ease}, border-color ${MESH_MOTION.fast} ${MESH_MOTION.ease}`,
+                        }}
+                      >
+                        <NavIcon kind="pr" color="currentColor" size={10} />
+                        <span
+                          className="font-mono"
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            minWidth: 0,
+                          }}
+                        >
+                          {label}
+                        </span>
+                        {pr.number ? (
+                          <span
+                            className="font-mono"
+                            style={{ color: MESH.fgMute, flexShrink: 0 }}
+                          >
+                            #{pr.number}
+                          </span>
+                        ) : null}
+                        <span
+                          className="font-mono"
+                          style={{ color: MESH.fgMute, flexShrink: 0 }}
+                          aria-hidden
+                        >
+                          ↗
+                        </span>
+                      </a>
+                    );
+                  })}
+                </div>
                 <a href="/ship" style={{ textDecoration: "none" }}>
                   <PrimaryButton>validate in Ship →</PrimaryButton>
                 </a>
@@ -1571,23 +1649,43 @@ function StepCard({
         ? unified.test_ids
         : [];
 
+  const isActive = status === "drafting" || status === "running";
+  const hasIntercept = !!live?.intercept;
+  const [expanded, setExpanded] = useState<boolean>(
+    () => isActive || hasIntercept,
+  );
+  // Auto-open when a previously-quiet step starts running or hits a skill
+  // intercept — the user wants visibility on what's happening live without
+  // hunting for the right card to expand.
+  useEffect(() => {
+    if (isActive || hasIntercept) setExpanded(true);
+  }, [isActive, hasIntercept]);
+
+  const bodyId = `step-${unified?.step ?? number}-body`;
+
   return (
     <div
       style={{
-        padding: "12px 14px",
         background: MESH.bgElev,
-        border: `1px solid ${status === "drafting" || status === "running" ? MESH.amber : MESH.border}`,
+        border: `1px solid ${isActive ? MESH.amber : MESH.border}`,
         borderRadius: 6,
         display: "flex",
         flexDirection: "column",
-        gap: 8,
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-controls={bodyId}
         style={{
+          all: "unset",
+          cursor: "pointer",
           display: "flex",
           alignItems: "center",
           gap: 10,
+          padding: "12px 14px",
+          boxSizing: "border-box",
         }}
       >
         <span
@@ -1623,144 +1721,167 @@ function StepCard({
           {truncateFirstLine(rationale, 60)}
         </span>
         <Pill tone={tone}>{label}</Pill>
-      </div>
-      {traceLinks && traceLinks.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            flexWrap: "wrap",
-          }}
-        >
-          <span
-            className="font-mono"
-            style={{
-              fontSize: 9,
-              color: MESH.fgMute,
-              textTransform: "uppercase",
-              letterSpacing: "0.14em",
-            }}
-          >
-            {unified?.kind === "test" ? "verifies" : "turns green"}
-          </span>
-          {traceLinks.map((id) => (
-            <Pill
-              key={id}
-              tone={unified?.kind === "test" ? "green" : "amber"}
-            >
-              <span className="font-mono" style={{ fontSize: 10 }}>
-                {id}
-              </span>
-            </Pill>
-          ))}
-        </div>
-      )}
-      <div
-        style={{
-          fontSize: 11,
-          color: MESH.fgDim,
-          lineHeight: 1.55,
-        }}
-      >
-        {rationale}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 10px",
-          background: MESH.bg,
-          border: `1px solid ${MESH.border}`,
-          borderRadius: 4,
-          minWidth: 0,
-        }}
-      >
-        <NavIcon kind="branch" color={MESH.fgDim} size={10} />
         <span
-          className="font-mono"
-          style={{ fontSize: 10, color: MESH.fgDim, whiteSpace: "nowrap" }}
-        >
-          {repo}
-        </span>
-        <span
-          className="font-mono"
+          aria-hidden
           style={{
-            fontSize: 10,
+            display: "inline-flex",
+            transform: `rotate(${expanded ? 0 : -90}deg)`,
+            transition: `transform ${MESH_MOTION.fast} ${MESH_MOTION.ease}`,
             color: MESH.fgMute,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            minWidth: 0,
-            flex: 1,
           }}
         >
-          {file}
+          <NavIcon kind="caret" color={MESH.fgMute} size={12} />
         </span>
-        <span
-          className="font-mono"
-          style={{ fontSize: 9, color: MESH.fgMute }}
-        >
-          {action}
-        </span>
-      </div>
-      {(citations.length > 0 || memoryCitations.length > 0) && (
+      </button>
+      {expanded && (
         <div
+          id={bodyId}
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: 6,
-            flexWrap: "wrap",
+            flexDirection: "column",
+            gap: 8,
+            padding: "0 14px 12px",
           }}
         >
-          <span
-            className="font-mono"
+          {traceLinks && traceLinks.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                className="font-mono"
+                style={{
+                  fontSize: 9,
+                  color: MESH.fgMute,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.14em",
+                }}
+              >
+                {unified?.kind === "test" ? "verifies" : "turns green"}
+              </span>
+              {traceLinks.map((id) => (
+                <Pill
+                  key={id}
+                  tone={unified?.kind === "test" ? "green" : "amber"}
+                >
+                  <span className="font-mono" style={{ fontSize: 10 }}>
+                    {id}
+                  </span>
+                </Pill>
+              ))}
+            </div>
+          )}
+          <div
             style={{
-              fontSize: 9,
-              color: MESH.fgMute,
-              textTransform: "uppercase",
-              letterSpacing: "0.14em",
+              fontSize: 11,
+              color: MESH.fgDim,
+              lineHeight: 1.55,
             }}
           >
-            cites
-          </span>
-          {adrs.map((a) => (
-            <Pill key={`a-${a}`} tone="amber">
-              {a}
-            </Pill>
-          ))}
-          {invs.slice(0, 2).map((i) => (
-            <Pill key={`i-${i}`} tone="green">
-              {i}
-            </Pill>
-          ))}
-        </div>
-      )}
-      {live?.intercept && (
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "rgba(229,72,77,0.06)",
-            border: `1px solid ${MESH.redDim}`,
-            borderRadius: 4,
-            fontSize: 10,
-            color: MESH.red,
-            lineHeight: 1.5,
-          }}
-          className="font-mono"
-        >
-          skill intercept · {live.intercept.title}
-          <br />
-          <span style={{ color: MESH.fgDim }}>{live.intercept.fix_hint}</span>
-        </div>
-      )}
-      {live?.sha && (
-        <div
-          className="font-mono"
-          style={{ fontSize: 10, color: MESH.green }}
-        >
-          ✓ committed · {live.sha.slice(0, 7)}
+            {rationale}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 10px",
+              background: MESH.bg,
+              border: `1px solid ${MESH.border}`,
+              borderRadius: 4,
+              minWidth: 0,
+            }}
+          >
+            <NavIcon kind="branch" color={MESH.fgDim} size={10} />
+            <span
+              className="font-mono"
+              style={{ fontSize: 10, color: MESH.fgDim, whiteSpace: "nowrap" }}
+            >
+              {repo}
+            </span>
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 10,
+                color: MESH.fgMute,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+                flex: 1,
+              }}
+            >
+              {file}
+            </span>
+            <span
+              className="font-mono"
+              style={{ fontSize: 9, color: MESH.fgMute }}
+            >
+              {action}
+            </span>
+          </div>
+          {(citations.length > 0 || memoryCitations.length > 0) && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                className="font-mono"
+                style={{
+                  fontSize: 9,
+                  color: MESH.fgMute,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.14em",
+                }}
+              >
+                cites
+              </span>
+              {adrs.map((a) => (
+                <Pill key={`a-${a}`} tone="amber">
+                  {a}
+                </Pill>
+              ))}
+              {invs.slice(0, 2).map((i) => (
+                <Pill key={`i-${i}`} tone="green">
+                  {i}
+                </Pill>
+              ))}
+            </div>
+          )}
+          {live?.intercept && (
+            <div
+              style={{
+                padding: "8px 10px",
+                background: "rgba(229,72,77,0.06)",
+                border: `1px solid ${MESH.redDim}`,
+                borderRadius: 4,
+                fontSize: 10,
+                color: MESH.red,
+                lineHeight: 1.5,
+              }}
+              className="font-mono"
+            >
+              skill intercept · {live.intercept.title}
+              <br />
+              <span style={{ color: MESH.fgDim }}>{live.intercept.fix_hint}</span>
+            </div>
+          )}
+          {live?.sha && (
+            <div
+              className="font-mono"
+              style={{ fontSize: 10, color: MESH.green }}
+            >
+              ✓ committed · {live.sha.slice(0, 7)}
+            </div>
+          )}
         </div>
       )}
     </div>

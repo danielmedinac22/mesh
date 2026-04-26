@@ -249,6 +249,13 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(245, 165, 36, 0.12);
 }
 
+/* PR chip hover (Build review footer) */
+.pr-chip:hover {
+  color: var(--mesh-fg);
+  border-color: var(--mesh-border-hi);
+  background: var(--mesh-bg-elev-2);
+}
+
 /* Cursor blink for thinking */
 .mesh-caret::after {
   content: "▍";
