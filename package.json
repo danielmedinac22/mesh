@@ -33,6 +33,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",
     "@anthropic-ai/sdk": "latest",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^21.0.2",
     "better-sqlite3": "^11.5.0",
     "class-variance-authority": "^0.7.1",
@@ -60,6 +61,8 @@
     "typescript": "^5.7.2"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }

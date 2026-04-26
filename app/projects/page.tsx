@@ -240,7 +240,7 @@ export default function ProjectsManagePage() {
                 autoFocus
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Project name (e.g. flare-bill)"
+                placeholder="Project name (e.g. acme)"
                 style={inputStyle}
               />
               <input

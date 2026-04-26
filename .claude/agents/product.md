@@ -39,10 +39,10 @@ When the master deploys you, produce a JSON object:
   ],
   "plan_contributions": [
     {
-      "repo": "flarebill-content",
-      "file": "pricing-en.json",
+      "repo": "<content-repo>",
+      "file": "<copy-or-config-file>",
       "action": "edit",
-      "reason": "update label to reflect the new tier name the CEO approved"
+      "reason": "update the user-facing label to match the approved framing"
     }
   ]
 }

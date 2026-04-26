@@ -6,8 +6,15 @@ import { promisify } from "node:util";
 import { ingestRepos, type IngestResult } from "@/lib/repo-ingest";
 import { buildConnectSystemPrompt, CONNECT_USER_PROMPT } from "@/lib/prompts/connect";
 import { getEngine, DEFAULT_MODEL } from "@/lib/engine";
-import { MemorySchema, parseMemoryJson, saveMemory, type Memory, type RepoBrief } from "@/lib/memory";
+import {
+  MemorySchema,
+  parseMemoryJson,
+  saveMemory,
+  type Memory,
+  type RepoBrief,
+} from "@/lib/memory";
 import { generateRepoBrief, saveRepoBrief } from "@/lib/repo-brief";
+import { generateRepoSkills, persistRepoSkills } from "@/lib/repo-skills";
 import {
   addProject,
   addRepo,
@@ -50,6 +57,10 @@ type ConnectEvent =
   | { type: "brief-start"; name: string }
   | { type: "repo-brief"; name: string; brief: RepoBrief }
   | { type: "brief-error"; name: string; message: string }
+  | { type: "skill-start"; name: string }
+  | { type: "skill-saved"; repo: string; name: string; id: string; description: string; kind: string }
+  | { type: "skill-done"; name: string; count: number }
+  | { type: "skill-error"; name: string; message: string }
   | { type: "retry"; attempt: number; reason: string }
   | {
       type: "done";
@@ -291,16 +302,57 @@ export async function POST(req: NextRequest) {
         // Per-repo briefs run in parallel after memory is ready. Failures
         // on one repo must not block the rest — each is isolated and its
         // failure reported as a brief-error event.
+        const briefByRepo = new Map<string, RepoBrief>();
         await Promise.all(
           ingest.repos.map(async (r) => {
             send({ type: "brief-start", name: r.name });
             try {
               const brief = await generateRepoBrief(r, config.engineMode);
               await saveRepoBrief(projectId!, r.name, brief);
+              briefByRepo.set(r.name, brief);
               send({ type: "repo-brief", name: r.name, brief });
             } catch (err) {
               send({
                 type: "brief-error",
+                name: r.name,
+                message: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }),
+        );
+
+        // Per-repo skill synthesis — turn the just-built memory + briefs into
+        // SKILL.md files under project scope so Build/Ship pick them up. A
+        // failed brief skips skill generation for that repo (no input).
+        const project = await getProject(projectId!);
+        const scopeLabel = project?.name ?? projectId!;
+        await Promise.all(
+          ingest.repos.map(async (r) => {
+            const brief = briefByRepo.get(r.name);
+            if (!brief) return;
+            send({ type: "skill-start", name: r.name });
+            try {
+              const raws = await generateRepoSkills(
+                r,
+                brief,
+                withMeta,
+                config.engineMode,
+              );
+              const saved = await persistRepoSkills(scopeLabel, raws);
+              for (const s of saved) {
+                send({
+                  type: "skill-saved",
+                  repo: r.name,
+                  name: s.name,
+                  id: s.id,
+                  description: s.description,
+                  kind: s.frontmatter.kind ?? "invariant",
+                });
+              }
+              send({ type: "skill-done", name: r.name, count: saved.length });
+            } catch (err) {
+              send({
+                type: "skill-error",
                 name: r.name,
                 message: err instanceof Error ? err.message : String(err),
               });

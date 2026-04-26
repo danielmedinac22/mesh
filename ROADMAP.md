@@ -71,7 +71,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 - `lib/skills-context.ts` para inyectar skills filtrados por paths/kinds al system prompt de sub-agentes
 - `skill-runner` filtra solo `kind=invariant` (pattern/knowledge nunca corren regex)
 - UI `/skills`: filtro por kind, badges coloreados, selector en editor
-- 2 seeds: `mesh-design-tokens` (pattern) + `flarebill-stack` (knowledge)
+- Seed: `mesh-design-tokens` (pattern). El seed `flarebill-stack` (knowledge) era demo del dataset sintético y se removió para el alpha.
 
 **Plans:**
 - [ ] 03-01: Extender parser de skills con campo `kind` + migración backwards-compat

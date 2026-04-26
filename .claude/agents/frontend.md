@@ -35,11 +35,11 @@ When the master deploys you for a ticket, you produce a JSON object:
   "risks": ["specific UI risks if implemented naively"],
   "plan_contributions": [
     {
-      "repo": "flarebill-web",
-      "file": "app/checkout/page.tsx",
+      "repo": "<web-repo>",
+      "file": "app/<surface>/page.tsx",
       "action": "edit",
-      "reason": "add the new payment method selector above the existing form",
-      "invariants_touched": ["billing-through-service"]
+      "reason": "add the new UI element above the existing form",
+      "invariants_touched": ["<skill-id-from-skills-context>"]
     }
   ]
 }

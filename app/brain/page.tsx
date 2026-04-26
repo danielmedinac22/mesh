@@ -20,6 +20,7 @@ import {
   type PendingQuestion,
 } from "@/components/brain/question-stream";
 import { ProvenanceBadge } from "@/components/brain/provenance-badge";
+import { RefreshMeetingsButton } from "@/components/brain/refresh-meetings-button";
 import { getPlaybook, SOURCE_META, type SourceKind } from "@/lib/role-playbooks";
 import type {
   BrainProfile,
@@ -282,12 +283,20 @@ export default function BrainPage() {
             notes &amp; uploads →
           </Link>
           {view === "profile" && isProfilePopulated && (
+            <div style={{ marginLeft: "auto" }}>
+              <RefreshMeetingsButton
+                defaultDays={3}
+                onRefreshed={() => loadProfile()}
+                compact
+              />
+            </div>
+          )}
+          {view === "profile" && isProfilePopulated && (
             <button
               type="button"
               onClick={resetAll}
               className="font-mono"
               style={{
-                marginLeft: "auto",
                 background: "transparent",
                 border: `1px solid ${MESH.border}`,
                 borderRadius: 6,
@@ -449,7 +458,7 @@ function EmptyHero({
         }}
       >
         Tell me your role, we connect the sources where your work lives, and in
-        3 minutes I'll have a profile that gets injected as context into every
+        3 minutes I&apos;ll have a profile that gets injected as context into every
         plan I build for you.
       </p>
       <div style={{ display: "flex", gap: 10, marginTop: 8, zIndex: 1 }}>

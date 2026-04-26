@@ -12,6 +12,11 @@ import { getPlaybook } from "@/lib/role-playbooks";
 import { listRepos } from "@/lib/mesh-state";
 import { listIntegrations, recordImport } from "@/lib/integrations";
 import { getEngine, DEFAULT_MODEL } from "@/lib/engine";
+import {
+  fetchRecentMeetings,
+  GRANOLA_DEFAULT_DAYS,
+  GranolaNotLinkedError,
+} from "@/lib/granola-mcp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -270,10 +275,31 @@ async function fetchSourceItems(
     }));
   }
 
+  if (source === "granola") {
+    try {
+      const meetings = await fetchRecentMeetings({ days: GRANOLA_DEFAULT_DAYS });
+      if (meetings.length > 0) {
+        return meetings.map((m) => ({
+          kind: "meeting" as const,
+          title: m.title,
+          body:
+            [m.summary, m.privateNotes].filter((s) => s && s.trim()).join("\n\n") ||
+            "(empty)",
+          ref: m.id,
+          tags: m.attendees.slice(0, 3),
+        }));
+      }
+    } catch (err) {
+      // GranolaNotLinkedError or transient MCP failure — fall through to seeds
+      // so the demo never breaks. The Settings card surfaces the link state.
+      void (err instanceof GranolaNotLinkedError);
+    }
+    return granolaSeeds()[role] ?? granolaSeeds().other;
+  }
+
   // Synthetic seeds — small, plausible, rotated by role so the cinema
   // feels real. Demo deterministic; we slice to 4 per source.
   const seedsByRoleAndSource: Record<string, Record<Role, SourceItem[]>> = {
-    granola: granolaSeeds(),
     linear: linearSeeds(),
     jira: jiraSeeds(),
   };

@@ -262,7 +262,7 @@ export function AdjustPlanModal({
             ref={textareaRef}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
-            placeholder="e.g. keep flarebill-content untouched, propose a cleaner migration order, add rollback notes per step…"
+            placeholder="e.g. keep the docs repo untouched, propose a cleaner migration order, add rollback notes per step…"
             rows={5}
             style={{
               width: "100%",

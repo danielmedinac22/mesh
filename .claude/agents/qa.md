@@ -41,10 +41,10 @@ When the master deploys you for a ticket, produce a JSON object:
   ],
   "plan_contributions": [
     {
-      "repo": "flarebill-api",
-      "file": "src/services/billing.test.ts",
+      "repo": "<repo>",
+      "file": "src/services/<service>.test.ts",
       "action": "edit",
-      "reason": "add a test asserting first-charge math does not touch recurring path"
+      "reason": "add a test asserting the new branch does not regress the existing path"
     }
   ]
 }
