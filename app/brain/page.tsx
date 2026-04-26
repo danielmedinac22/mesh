@@ -1,458 +1,1056 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppShell, MESH, Pill } from "@/components/mesh";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AppShell,
+  CinemaThinking,
+  MESH,
+  Pill,
+  type CinemaPhase,
+} from "@/components/mesh";
+import { ConnectCard, type ConnectState } from "@/components/brain/connect-card";
+import { RolePicker } from "@/components/brain/role-picker";
+import {
+  ProfileSection,
+  EmptyDimension,
+} from "@/components/brain/profile-section";
+import {
+  QuestionStream,
+  type PendingQuestion,
+} from "@/components/brain/question-stream";
+import { ProvenanceBadge } from "@/components/brain/provenance-badge";
+import { getPlaybook, SOURCE_META, type SourceKind } from "@/lib/role-playbooks";
+import type {
+  BrainProfile,
+  ProfileDimension,
+  Role,
+} from "@/lib/user-brain";
 
-type BrainEntryKind = "note" | "meeting" | "ticket" | "link";
-
-type BrainEntry = {
-  id: string;
-  kind: BrainEntryKind;
-  body: string;
-  title?: string;
-  source?: string;
-  ref?: string;
-  url?: string;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-};
-
-type BrainResponse = {
-  entries: BrainEntry[];
-  updatedAt: string;
-};
-
-const KINDS: { id: BrainEntryKind | "all"; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "note", label: "Notes" },
-  { id: "meeting", label: "Meetings" },
-  { id: "ticket", label: "Tickets" },
-  { id: "link", label: "Links" },
-];
+type View = "empty" | "role" | "connect" | "onboarding" | "profile";
 
 export default function BrainPage() {
-  const [entries, setEntries] = useState<BrainEntry[]>([]);
+  const [view, setView] = useState<View>("empty");
+  const [profile, setProfile] = useState<BrainProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<BrainEntryKind | "all">("all");
 
-  const [body, setBody] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
-  const [title, setTitle] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [role, setRole] = useState<Role | null>(null);
+  const [roleLabel, setRoleLabel] = useState<string>("");
+  const [selectedSources, setSelectedSources] = useState<SourceKind[]>([]);
 
-  const load = useCallback(async () => {
+  const [cinemaMode, setCinemaMode] = useState<"cinema" | "docked" | "off">("off");
+  const [phases, setPhases] = useState<CinemaPhase[]>([]);
+  const [currentPhase, setCurrentPhase] = useState<CinemaPhase | null>(null);
+  const [thinkingText, setThinkingText] = useState("");
+  const [streamingActive, setStreamingActive] = useState(false);
+  const [questions, setQuestions] = useState<PendingQuestion[]>([]);
+  const [questionsActive, setQuestionsActive] = useState(false);
+
+  const sourceStates = useRef<Map<SourceKind, ConnectState>>(new Map());
+
+  const playbook = useMemo(() => (role ? getPlaybook(role) : null), [role]);
+  const isProfilePopulated = useMemo(() => {
+    if (!profile) return false;
+    const c = profile.confidence;
+    return Object.values(c).reduce((a, b) => a + b, 0) > 1.0;
+  }, [profile]);
+
+  const loadProfile = useCallback(async () => {
     try {
-      const res = await fetch("/api/brain", { cache: "no-store" });
-      const json = (await res.json()) as BrainResponse;
-      setEntries(json.entries ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const res = await fetch("/api/brain/profile", { cache: "no-store" });
+      const json = (await res.json()) as { profile: BrainProfile };
+      setProfile(json.profile);
+      const populated =
+        Object.values(json.profile.confidence).reduce((a, b) => a + b, 0) > 1.0;
+      if (populated) setView("profile");
+      else setView("empty");
+    } catch {
+      // silent
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadProfile();
+  }, [loadProfile]);
 
-  const filtered = useMemo(() => {
-    if (filter === "all") return entries;
-    return entries.filter((e) => e.kind === filter);
-  }, [entries, filter]);
+  // ── Onboarding flow ────────────────────────────────────────────────────
 
-  const submit = useCallback(async () => {
-    const trimmed = body.trim();
-    if (!trimmed) return;
-    setSaving(true);
-    setError(null);
+  const startOnboarding = useCallback(async () => {
+    if (!role) return;
+    setView("onboarding");
+    setCinemaMode("cinema");
+    setPhases([
+      { id: "intake", label: "Intake", tone: "amber" },
+      { id: "fetch", label: "Fetch", tone: "signal" },
+      { id: "read", label: "Read", tone: "signal" },
+      { id: "synthesize", label: "Synthesize", tone: "amber" },
+      { id: "questions", label: "Gap-fill", tone: "green" },
+    ]);
+    setCurrentPhase({ id: "intake", label: "Intake", tone: "amber" });
+    setThinkingText("");
+    setQuestions([]);
+    setStreamingActive(true);
+
     try {
-      const tags = tagsInput
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const res = await fetch("/api/brain", {
+      const res = await fetch("/api/brain/onboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind: "note",
-          body: trimmed,
-          title: title.trim() || undefined,
-          tags,
+          role,
+          sources: selectedSources,
+          lang: "en",
         }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error ?? `HTTP ${res.status}`);
-      }
-      setBody("");
-      setTagsInput("");
-      setTitle("");
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [body, tagsInput, title, load]);
+      if (!res.ok || !res.body) throw new Error("onboard failed");
 
-  const remove = useCallback(
-    async (id: string) => {
-      try {
-        await fetch(`/api/brain?id=${encodeURIComponent(id)}`, {
-          method: "DELETE",
-        });
-        await load();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const collectedQuestions: PendingQuestion[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) !== -1) {
+          const raw = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          for (const line of raw.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.type === "phase") {
+                const p: CinemaPhase = {
+                  id: ev.id,
+                  label: ev.label,
+                  tone: ev.tone ?? "amber",
+                };
+                setCurrentPhase(p);
+                setThinkingText((t) => t + `\n\n${ev.label}…\n`);
+              } else if (ev.type === "source-fetched") {
+                setThinkingText(
+                  (t) => t + `· ${ev.source}: ${ev.count} items\n`,
+                );
+                sourceStates.current.set(ev.source, "done");
+              } else if (ev.type === "thinking") {
+                setThinkingText((t) => t + ev.delta);
+              } else if (ev.type === "text") {
+                setThinkingText((t) => t + ev.delta);
+              } else if (ev.type === "question") {
+                collectedQuestions.push({
+                  dim: ev.dim,
+                  prompt: ev.prompt,
+                  hint: ev.hint,
+                });
+              } else if (ev.type === "done") {
+                setProfile(ev.profile);
+                setStreamingActive(false);
+                if (collectedQuestions.length > 0) {
+                  setQuestions(collectedQuestions);
+                  setQuestionsActive(true);
+                  // Dock so the user can see questions overlay clearly
+                  setCinemaMode("docked");
+                } else {
+                  setCinemaMode("off");
+                  setView("profile");
+                }
+              } else if (ev.type === "error") {
+                setThinkingText((t) => t + `\n\nError: ${ev.message}\n`);
+                setStreamingActive(false);
+              }
+            } catch {
+              // ignore malformed lines
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setThinkingText(
+        (t) => t + `\n\nError: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      setStreamingActive(false);
+    }
+  }, [role, selectedSources]);
+
+  const handleAnswer = useCallback(
+    async (dim: ProfileDimension, text: string) => {
+      const res = await fetch("/api/brain/answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dim, text }),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { profile: BrainProfile };
+        setProfile(json.profile);
       }
     },
-    [load],
+    [],
   );
+
+  const finishQuestions = useCallback(() => {
+    setQuestionsActive(false);
+    setCinemaMode("off");
+    setView("profile");
+    void loadProfile();
+  }, [loadProfile]);
+
+  const resetAll = useCallback(async () => {
+    if (!confirm("Reset your full profile? (notes at /brain/notes are kept)")) return;
+    await fetch("/api/brain/profile", { method: "DELETE" });
+    setRole(null);
+    setRoleLabel("");
+    setSelectedSources([]);
+    setQuestions([]);
+    await loadProfile();
+  }, [loadProfile]);
+
+  // ── Render ─────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <AppShell title="Brain" subtitle="Your personal context for Mesh">
+        <div
+          className="font-mono"
+          style={{ padding: 32, color: MESH.fgMute, fontSize: 12 }}
+        >
+          loading…
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell
       title="Brain"
-      subtitle="Cross-project context that gets injected into every ticket plan"
+      subtitle="Your learned profile — injected into every Mesh plan"
     >
       <div
         style={{
-          maxWidth: 880,
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          alignItems: "stretch",
           width: "100%",
-          margin: "0 auto",
-          padding: "24px 24px 48px",
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "auto",
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+      <div
+        style={{
+          maxWidth: 980,
+          width: "100%",
+          margin: 0,
+          padding: "24px 24px 64px",
           display: "flex",
           flexDirection: "column",
           gap: 24,
         }}
       >
-        {/* Compose */}
-        <section
-          className="mesh-bracket-wrap"
+        {/* Top action bar */}
+        <div
           style={{
-            border: `1px solid ${MESH.border}`,
-            background: MESH.bgElev,
-            padding: 18,
             display: "flex",
-            flexDirection: "column",
+            alignItems: "center",
             gap: 12,
-            position: "relative",
+            flexWrap: "wrap",
           }}
         >
-          <span className="mesh-bracket-bl" />
-          <span className="mesh-bracket-br" />
-          <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 4 }}>
-            <span
-              aria-hidden
-              style={{ width: 4, height: 14, background: MESH.amber, borderRadius: 1 }}
-            />
-            <span className="mesh-hud" style={{ color: MESH.fgDim }}>
-              NEW NOTE
-            </span>
-          </div>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Optional title (e.g. 'Auth migration decision')"
-            style={inputStyle}
-          />
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="What context should Mesh remember across every ticket?"
-            rows={4}
+          <Link
+            href="/brain/notes"
             style={{
-              ...inputStyle,
-              fontFamily: "inherit",
-              resize: "vertical",
-              lineHeight: 1.5,
-            }}
-          />
-          <input
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="tags, comma-separated (e.g. auth, billing, ops)"
-            style={inputStyle}
-          />
-          {error && (
-            <div
-              className="font-mono"
-              style={{
-                fontSize: 11,
-                color: MESH.red,
-                padding: "6px 8px",
-                background: "rgba(229,72,77,0.08)",
-                borderRadius: 4,
-              }}
-            >
-              {error}
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button
-              type="button"
-              disabled={saving || !body.trim()}
-              onClick={submit}
-              style={{
-                padding: "8px 14px",
-                borderRadius: 6,
-                background: MESH.amber,
-                border: `1px solid ${MESH.amber}`,
-                color: "#0B0B0C",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: saving || !body.trim() ? "not-allowed" : "pointer",
-                opacity: saving || !body.trim() ? 0.5 : 1,
-              }}
-            >
-              {saving ? "Saving…" : "Save note"}
-            </button>
-            <span
-              className="font-mono"
-              style={{ fontSize: 10.5, color: MESH.fgMute }}
-            >
-              Stored at .mesh/user/brain.json — injected into every ticket prompt as cached system context.
-            </span>
-          </div>
-        </section>
-
-        {/* Filters */}
-        <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
+              padding: "6px 12px",
+              borderRadius: 6,
+              background: "transparent",
+              border: `1px solid ${MESH.border}`,
+              color: MESH.fgDim,
+              fontSize: 12,
+              textDecoration: "none",
+              fontFamily: "var(--font-mono), monospace",
+              letterSpacing: "0.04em",
             }}
           >
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {KINDS.map((k) => {
-                const active = filter === k.id;
-                return (
-                  <button
-                    key={k.id}
-                    type="button"
-                    onClick={() => setFilter(k.id)}
-                    style={{
-                      padding: "5px 10px",
-                      borderRadius: 999,
-                      background: active ? "rgba(245,165,36,0.1)" : "transparent",
-                      border: `1px solid ${active ? "rgba(245,165,36,0.4)" : MESH.border}`,
-                      color: active ? MESH.amber : MESH.fgDim,
-                      fontSize: 11.5,
-                      cursor: "pointer",
-                      fontWeight: active ? 500 : 400,
-                    }}
-                  >
-                    {k.label}
-                  </button>
-                );
-              })}
-            </div>
-            <span
+            notes &amp; uploads →
+          </Link>
+          {view === "profile" && isProfilePopulated && (
+            <button
+              type="button"
+              onClick={resetAll}
               className="font-mono"
-              style={{ fontSize: 10.5, color: MESH.fgMute }}
+              style={{
+                marginLeft: "auto",
+                background: "transparent",
+                border: `1px solid ${MESH.border}`,
+                borderRadius: 6,
+                padding: "6px 12px",
+                color: MESH.fgMute,
+                fontSize: 11,
+                cursor: "pointer",
+              }}
             >
-              {entries.length} {entries.length === 1 ? "entry" : "entries"}
-            </span>
-          </div>
+              reset profile
+            </button>
+          )}
+        </div>
 
-          {/* List */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {loading && (
-              <div
-                className="font-mono"
-                style={{ fontSize: 12, color: MESH.fgMute, padding: 16 }}
-              >
-                Loading brain…
-              </div>
-            )}
-            {!loading && filtered.length === 0 && (
-              <div
-                style={{
-                  padding: 24,
-                  borderRadius: 8,
-                  border: `1px dashed ${MESH.border}`,
-                  background: MESH.bg,
-                  color: MESH.fgMute,
-                  fontSize: 13,
-                  textAlign: "center",
-                  lineHeight: 1.6,
-                }}
-              >
-                {entries.length === 0
-                  ? "Your brain is empty. Add notes about decisions, recurring patterns, or context Mesh should remember."
-                  : `No ${filter} entries yet.`}
-              </div>
-            )}
-            {filtered.map((e) => (
-              <BrainEntryCard key={e.id} entry={e} onRemove={() => remove(e.id)} />
-            ))}
-          </div>
-        </section>
+        {view === "empty" && (
+          <EmptyHero
+            onStart={() => setView("role")}
+            isPopulated={isProfilePopulated}
+          />
+        )}
+
+        {view === "role" && (
+          <RoleStep
+            onPick={(r, label) => {
+              setRole(r);
+              setRoleLabel(label);
+              const pb = getPlaybook(r);
+              setSelectedSources(pb.sources.primary);
+              setView("connect");
+            }}
+            onBack={() => setView("empty")}
+          />
+        )}
+
+        {view === "connect" && playbook && (
+          <ConnectStep
+            roleLabel={roleLabel}
+            playbook={playbook}
+            selected={selectedSources}
+            onToggle={(s) =>
+              setSelectedSources((prev) =>
+                prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
+              )
+            }
+            onStart={startOnboarding}
+            onSkip={startOnboarding}
+            onBack={() => setView("role")}
+          />
+        )}
+
+        {view === "profile" && profile && (
+          <ProfileGrid
+            profile={profile}
+            roleLabel={profile.who?.roleLabel ?? roleLabel}
+            playbookRole={profile.who?.role ?? role ?? "other"}
+            onRefresh={() => setView("role")}
+          />
+        )}
+
+        {view === "onboarding" && questionsActive && questions.length > 0 && (
+          <QuestionStream
+            questions={questions}
+            onAnswer={handleAnswer}
+            onSkip={() => undefined}
+            onDone={finishQuestions}
+          />
+        )}
+      </div>
+        </div>
+
+        <CinemaThinking
+          mode={cinemaMode}
+          text={thinkingText}
+          active={streamingActive}
+          tokens={thinkingText.length}
+          phase={currentPhase}
+          phases={phases}
+          title={
+            <span>
+              Learning about you<span style={{ color: MESH.amber }}>.</span>
+            </span>
+          }
+          subtitle={`${roleLabel} · ${selectedSources.length} source${selectedSources.length === 1 ? "" : "s"}`}
+          onDismiss={() => setCinemaMode("off")}
+          onExpand={() => setCinemaMode("cinema")}
+        />
       </div>
     </AppShell>
   );
 }
 
-function BrainEntryCard({
-  entry,
-  onRemove,
+// ── Empty hero ──────────────────────────────────────────────────────────
+
+function EmptyHero({
+  onStart,
+  isPopulated,
 }: {
-  entry: BrainEntry;
-  onRemove: () => void;
+  onStart: () => void;
+  isPopulated: boolean;
 }) {
-  const [confirming, setConfirming] = useState(false);
   return (
-    <article
+    <section
       style={{
-        padding: "14px 16px",
-        borderRadius: 8,
-        border: `1px solid ${MESH.border}`,
+        padding: "48px 32px 56px",
         background: MESH.bgElev,
+        border: `1px solid ${MESH.border}`,
+        borderRadius: 12,
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        gap: 18,
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <Pill tone={kindTone(entry.kind)}>{entry.kind}</Pill>
-        {entry.source && (
-          <span
-            className="font-mono"
-            style={{ fontSize: 10.5, color: MESH.fgMute }}
-          >
-            via {entry.source}
-          </span>
-        )}
-        {entry.title && (
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: MESH.fg,
-              letterSpacing: "-0.01em",
-            }}
-          >
-            {entry.title}
-          </span>
-        )}
-        <span
-          className="font-mono"
-          style={{
-            marginLeft: "auto",
-            fontSize: 10.5,
-            color: MESH.fgMute,
-          }}
-        >
-          {timeAgo(entry.createdAt)}
-        </span>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "radial-gradient(60% 80% at 80% -10%, rgba(245,165,36,0.10) 0%, transparent 60%), radial-gradient(40% 60% at 0% 100%, rgba(76,154,255,0.08) 0%, transparent 70%)",
+          pointerEvents: "none",
+        }}
+      />
+      <span
+        className="font-mono"
+        style={{
+          fontSize: 11,
+          color: MESH.amber,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          zIndex: 1,
+        }}
+      >
+        Personal brain
+      </span>
+      <h1
+        className="mesh-display"
+        style={{
+          margin: 0,
+          fontSize: 40,
+          color: MESH.fg,
+          letterSpacing: "-0.03em",
+          lineHeight: 1.05,
+          maxWidth: 720,
+          zIndex: 1,
+        }}
+      >
+        Mesh works better when it knows you.
+      </h1>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 16,
+          color: MESH.fgDim,
+          lineHeight: 1.55,
+          maxWidth: 640,
+          zIndex: 1,
+        }}
+      >
+        Tell me your role, we connect the sources where your work lives, and in
+        3 minutes I'll have a profile that gets injected as context into every
+        plan I build for you.
+      </p>
+      <div style={{ display: "flex", gap: 10, marginTop: 8, zIndex: 1 }}>
         <button
           type="button"
-          onClick={() => {
-            if (confirming) onRemove();
-            else {
-              setConfirming(true);
-              setTimeout(() => setConfirming(false), 2500);
-            }
-          }}
-          className="font-mono"
+          onClick={onStart}
           style={{
-            background: "transparent",
-            border: "none",
-            color: confirming ? MESH.red : MESH.fgMute,
-            fontSize: confirming ? 10 : 14,
+            padding: "10px 18px",
+            borderRadius: 6,
+            background: MESH.amber,
+            border: `1px solid ${MESH.amber}`,
+            color: "#0B0B0C",
+            fontSize: 13,
+            fontWeight: 600,
             cursor: "pointer",
-            padding: "0 4px",
           }}
         >
-          {confirming ? "ok?" : "×"}
+          {isPopulated ? "Re-train profile" : "Get started — 3 min"}
         </button>
-      </div>
-      {entry.body && (
-        <p
+        <Link
+          href="/brain/notes"
           style={{
-            margin: 0,
+            padding: "10px 16px",
+            borderRadius: 6,
+            background: "transparent",
+            border: `1px solid ${MESH.border}`,
             color: MESH.fgDim,
             fontSize: 13,
-            lineHeight: 1.55,
-            whiteSpace: "pre-wrap",
+            textDecoration: "none",
           }}
         >
-          {entry.body}
-        </p>
-      )}
-      {entry.url && (
-        <a
-          href={entry.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono"
-          style={{ fontSize: 11, color: MESH.amber }}
-        >
-          {entry.url}
-        </a>
-      )}
-      {entry.tags.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {entry.tags.map((t) => (
-            <span
-              key={t}
-              className="font-mono"
-              style={{
-                fontSize: 10.5,
-                color: MESH.fgMute,
-                padding: "2px 7px",
-                background: MESH.bg,
-                border: `1px solid ${MESH.border}`,
-                borderRadius: 999,
-              }}
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
-    </article>
+          Or upload a .md
+        </Link>
+      </div>
+    </section>
   );
 }
 
-function kindTone(kind: BrainEntryKind): "amber" | "green" | "dim" {
-  switch (kind) {
-    case "meeting":
-      return "amber";
-    case "ticket":
-      return "green";
-    case "link":
-      return "dim";
-    default:
-      return "amber";
-  }
+// ── Role step ───────────────────────────────────────────────────────────
+
+function RoleStep({
+  onPick,
+  onBack,
+}: {
+  onPick: (role: Role, label: string) => void;
+  onBack: () => void;
+}) {
+  return (
+    <section
+      style={{
+        padding: "28px 24px 28px",
+        background: MESH.bgElev,
+        border: `1px solid ${MESH.border}`,
+        borderRadius: 10,
+        display: "flex",
+        flexDirection: "column",
+        gap: 18,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 10,
+            color: MESH.fgMute,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+          }}
+        >
+          Step 1 of 2
+        </span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="font-mono"
+          style={{
+            marginLeft: "auto",
+            background: "transparent",
+            border: "none",
+            color: MESH.fgMute,
+            fontSize: 11,
+            cursor: "pointer",
+          }}
+        >
+          ← back
+        </button>
+      </div>
+      <h2
+        className="mesh-display"
+        style={{
+          margin: 0,
+          fontSize: 26,
+          color: MESH.fg,
+          letterSpacing: "-0.02em",
+          lineHeight: 1.1,
+        }}
+      >
+        Which role describes you best?
+      </h2>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13.5,
+          color: MESH.fgDim,
+          maxWidth: 560,
+          lineHeight: 1.55,
+        }}
+      >
+        This decides which sources I offer you next and what questions I ask.
+        You can change it later.
+      </p>
+      <RolePicker onPick={onPick} />
+    </section>
+  );
 }
 
-function timeAgo(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!t) return "";
-  const diff = Date.now() - t;
-  const m = Math.floor(diff / 60_000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
+// ── Connect step ────────────────────────────────────────────────────────
+
+function ConnectStep({
+  roleLabel,
+  playbook,
+  selected,
+  onToggle,
+  onStart,
+  onSkip,
+  onBack,
+}: {
+  roleLabel: string;
+  playbook: ReturnType<typeof getPlaybook>;
+  selected: SourceKind[];
+  onToggle: (s: SourceKind) => void;
+  onStart: () => void;
+  onSkip: () => void;
+  onBack: () => void;
+}) {
+  const all: SourceKind[] = [
+    ...playbook.sources.primary,
+    ...playbook.sources.placeholder,
+  ];
+  return (
+    <section
+      style={{
+        padding: "28px 24px 28px",
+        background: MESH.bgElev,
+        border: `1px solid ${MESH.border}`,
+        borderRadius: 10,
+        display: "flex",
+        flexDirection: "column",
+        gap: 18,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 10,
+            color: MESH.fgMute,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+          }}
+        >
+          Step 2 of 2 · {roleLabel}
+        </span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="font-mono"
+          style={{
+            marginLeft: "auto",
+            background: "transparent",
+            border: "none",
+            color: MESH.fgMute,
+            fontSize: 11,
+            cursor: "pointer",
+          }}
+        >
+          ← back
+        </button>
+      </div>
+      <h2
+        className="mesh-display"
+        style={{
+          margin: 0,
+          fontSize: 26,
+          color: MESH.fg,
+          letterSpacing: "-0.02em",
+          lineHeight: 1.1,
+        }}
+      >
+        Where should we pull your context from?
+      </h2>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13.5,
+          color: MESH.fgDim,
+          maxWidth: 560,
+          lineHeight: 1.55,
+        }}
+      >
+        {playbook.pitch}
+      </p>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gap: 12,
+        }}
+      >
+        {all.map((s) => (
+          <ConnectCard
+            key={s}
+            source={s}
+            state="idle"
+            selected={selected.includes(s)}
+            disabled={!SOURCE_META[s].live}
+            onToggle={() => onToggle(s)}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
+        <button
+          type="button"
+          onClick={onStart}
+          disabled={selected.length === 0}
+          style={{
+            padding: "10px 18px",
+            borderRadius: 6,
+            background: MESH.amber,
+            border: `1px solid ${MESH.amber}`,
+            color: "#0B0B0C",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: selected.length === 0 ? "not-allowed" : "pointer",
+            opacity: selected.length === 0 ? 0.4 : 1,
+          }}
+        >
+          Connect {selected.length} {selected.length === 1 ? "source" : "sources"} and learn
+        </button>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="font-mono"
+          style={{
+            background: "transparent",
+            border: `1px solid ${MESH.border}`,
+            borderRadius: 6,
+            padding: "10px 14px",
+            color: MESH.fgDim,
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          skip and just chat
+        </button>
+      </div>
+    </section>
+  );
 }
 
-const inputStyle: React.CSSProperties = {
-  padding: "9px 11px",
-  background: MESH.bgInput,
-  border: `1px solid ${MESH.border}`,
-  borderRadius: 6,
-  color: MESH.fg,
-  fontSize: 13,
-  outline: "none",
-};
+// ── Profile grid ────────────────────────────────────────────────────────
+
+function ProfileGrid({
+  profile,
+  roleLabel,
+  playbookRole,
+  onRefresh,
+}: {
+  profile: BrainProfile;
+  roleLabel: string;
+  playbookRole: Role;
+  onRefresh: () => void;
+}) {
+  const playbook = getPlaybook(playbookRole);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <header
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <h2
+          className="mesh-display"
+          style={{
+            margin: 0,
+            fontSize: 22,
+            color: MESH.fg,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          What I know about you
+        </h2>
+        <Pill tone="amber">{roleLabel}</Pill>
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="font-mono"
+          style={{
+            marginLeft: "auto",
+            background: "transparent",
+            border: `1px solid ${MESH.border}`,
+            borderRadius: 6,
+            padding: "6px 12px",
+            color: MESH.fgDim,
+            fontSize: 11.5,
+            cursor: "pointer",
+          }}
+        >
+          + add source / re-train
+        </button>
+      </header>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: 12,
+        }}
+      >
+        {/* Who — full width */}
+        <ProfileSection
+          label="Who you are"
+          filled={!!profile.who?.bio || !!profile.who?.name}
+          provenance={profile.who?.provenance}
+          confidence={profile.confidence.who}
+          span={2}
+        >
+          {profile.who?.bio || profile.who?.name ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {(profile.who?.name || profile.who?.company || profile.who?.team) && (
+                <div style={{ fontSize: 15, color: MESH.fg, fontWeight: 500 }}>
+                  {[profile.who?.name, profile.who?.company, profile.who?.team]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              )}
+              {profile.who?.bio && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13.5,
+                    color: MESH.fgDim,
+                    lineHeight: 1.55,
+                  }}
+                >
+                  {profile.who.bio}
+                </p>
+              )}
+            </div>
+          ) : (
+            <EmptyDimension hint={playbook.questions.who.hint} />
+          )}
+        </ProfileSection>
+
+        <ProfileSection
+          label="What you work on"
+          filled={
+            !!profile.focus?.summary ||
+            (profile.focus?.areas?.length ?? 0) > 0 ||
+            (profile.focus?.activeInitiatives?.length ?? 0) > 0
+          }
+          provenance={profile.focus?.provenance}
+          confidence={profile.confidence.focus}
+        >
+          {profile.focus?.summary || profile.focus?.activeInitiatives?.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {profile.focus?.summary && (
+                <p style={{ margin: 0, fontSize: 13.5, color: MESH.fgDim, lineHeight: 1.55 }}>
+                  {profile.focus.summary}
+                </p>
+              )}
+              {profile.focus?.areas?.length ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {profile.focus.areas.map((a) => (
+                    <Pill key={a} tone="dim">
+                      {a}
+                    </Pill>
+                  ))}
+                </div>
+              ) : null}
+              {profile.focus?.activeInitiatives?.length ? (
+                <ul
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    listStyle: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
+                >
+                  {profile.focus.activeInitiatives.slice(0, 4).map((i, idx) => (
+                    <li
+                      key={idx}
+                      style={{
+                        fontSize: 12.5,
+                        color: MESH.fgDim,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      <span style={{ color: MESH.amber }}>—</span> {i.title}
+                      {i.note && (
+                        <span style={{ color: MESH.fgMute }}> · {i.note}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : (
+            <EmptyDimension hint={playbook.questions.focus.hint} />
+          )}
+        </ProfileSection>
+
+        <ProfileSection
+          label="How you decide"
+          filled={(profile.decisions?.rules?.length ?? 0) > 0}
+          provenance={profile.decisions?.provenance}
+          confidence={profile.confidence.decisions}
+        >
+          {profile.decisions?.rules?.length ? (
+            <ul
+              style={{
+                margin: 0,
+                padding: 0,
+                listStyle: "none",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+              }}
+            >
+              {profile.decisions.rules.slice(0, 5).map((r, idx) => (
+                <li
+                  key={idx}
+                  style={{
+                    fontSize: 12.5,
+                    color: MESH.fg,
+                    lineHeight: 1.5,
+                    paddingLeft: 12,
+                    borderLeft: `2px solid ${MESH.amber}`,
+                  }}
+                >
+                  {r.rule}
+                  {r.why && (
+                    <div style={{ color: MESH.fgMute, fontSize: 11, marginTop: 2 }}>
+                      {r.why}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyDimension hint={playbook.questions.decisions.hint} />
+          )}
+        </ProfileSection>
+
+        <ProfileSection
+          label="Who you work with"
+          filled={
+            (profile.people?.stakeholders?.length ?? 0) > 0 ||
+            !!profile.people?.escalation
+          }
+          provenance={profile.people?.provenance}
+          confidence={profile.confidence.people}
+        >
+          {(profile.people?.stakeholders?.length ?? 0) > 0 ||
+          profile.people?.escalation ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {profile.people?.stakeholders?.length ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {profile.people.stakeholders.slice(0, 6).map((s) => (
+                    <Pill key={s} tone="dim">
+                      {s}
+                    </Pill>
+                  ))}
+                </div>
+              ) : null}
+              {profile.people?.escalation && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    color: MESH.fgMute,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Escalation: {profile.people.escalation}
+                </p>
+              )}
+            </div>
+          ) : (
+            <EmptyDimension hint={playbook.questions.people.hint} />
+          )}
+        </ProfileSection>
+
+        <ProfileSection
+          label="Where context lives"
+          filled={
+            (profile.sources?.connected?.length ?? 0) > 0 ||
+            !!profile.sources?.lives
+          }
+          provenance={profile.sources?.provenance}
+          confidence={profile.confidence.sources}
+        >
+          {(profile.sources?.connected?.length ?? 0) > 0 ||
+          profile.sources?.lives ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {profile.sources?.connected?.length ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {profile.sources.connected.map((s) => (
+                    <Pill key={s} tone="green">
+                      {s}
+                    </Pill>
+                  ))}
+                </div>
+              ) : null}
+              {profile.sources?.lives && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12.5,
+                    color: MESH.fgDim,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {profile.sources.lives}
+                </p>
+              )}
+            </div>
+          ) : (
+            <EmptyDimension hint={playbook.questions.sources.hint} />
+          )}
+        </ProfileSection>
+
+        <ProfileSection
+          label="How you communicate"
+          filled={!!profile.comms?.style || !!profile.comms?.format}
+          provenance={profile.comms?.provenance}
+          confidence={profile.confidence.comms}
+        >
+          {profile.comms?.style || profile.comms?.format ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {profile.comms?.style && (
+                  <Pill tone="amber">{profile.comms.style}</Pill>
+                )}
+                {profile.comms?.lang && (
+                  <Pill tone="dim">lang: {profile.comms.lang}</Pill>
+                )}
+              </div>
+              {profile.comms?.format && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12.5,
+                    color: MESH.fgDim,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {profile.comms.format}
+                </p>
+              )}
+            </div>
+          ) : (
+            <EmptyDimension hint={playbook.questions.comms.hint} />
+          )}
+        </ProfileSection>
+      </div>
+
+      <footer
+        style={{
+          marginTop: 8,
+          padding: "12px 14px",
+          background: MESH.bg,
+          border: `1px dashed ${MESH.border}`,
+          borderRadius: 6,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <ProvenanceBadge
+          provenance={[
+            { source: "synthesized", at: profile.updatedAt },
+          ]}
+          align="left"
+        />
+        <span
+          className="font-mono"
+          style={{ fontSize: 10.5, color: MESH.fgMute }}
+        >
+          stored at .mesh/user/brain.json — appended to every Build / Ship prompt as cached system context.
+        </span>
+      </footer>
+    </div>
+  );
+}

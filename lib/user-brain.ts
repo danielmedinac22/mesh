@@ -23,13 +23,150 @@ export const BrainEntrySchema = z.object({
 });
 export type BrainEntry = z.infer<typeof BrainEntrySchema>;
 
+// ── Profile (structured personal context) ────────────────────────────────
+//
+// The profile is the role-aware "what Mesh knows about you" snapshot that
+// gets injected into Build / Ship prompts. Fields are filled by a mix of:
+// imports (granola / linear / jira / github), explicit user answers in
+// the onboarding chat, and inline edits on the Brain page. Each filled
+// field carries a ProvenanceRef so the UI can show "from 12 meetings",
+// "you said", etc.
+
+export const RoleSchema = z.enum([
+  "ceo",
+  "founder",
+  "pm",
+  "designer",
+  "engineer",
+  "other",
+]);
+export type Role = z.infer<typeof RoleSchema>;
+
+export const ProvenanceSourceSchema = z.enum([
+  "user",
+  "granola",
+  "linear",
+  "jira",
+  "github",
+  "upload",
+  "synthesized",
+]);
+export type ProvenanceSource = z.infer<typeof ProvenanceSourceSchema>;
+
+export const ProvenanceRefSchema = z.object({
+  source: ProvenanceSourceSchema,
+  ref: z.string().optional(),
+  count: z.number().int().nonnegative().optional(),
+  at: z.string().optional(),
+});
+export type ProvenanceRef = z.infer<typeof ProvenanceRefSchema>;
+
+export const PROFILE_DIMENSIONS = [
+  "who",
+  "focus",
+  "decisions",
+  "people",
+  "sources",
+  "comms",
+] as const;
+export type ProfileDimension = (typeof PROFILE_DIMENSIONS)[number];
+
+export const BrainProfileSchema = z.object({
+  who: z
+    .object({
+      role: RoleSchema.optional(),
+      roleLabel: z.string().optional(),
+      name: z.string().optional(),
+      company: z.string().optional(),
+      team: z.string().optional(),
+      bio: z.string().optional(),
+      provenance: z.array(ProvenanceRefSchema).default([]),
+    })
+    .optional(),
+  focus: z
+    .object({
+      summary: z.string().optional(),
+      areas: z.array(z.string()).default([]),
+      activeInitiatives: z
+        .array(z.object({ title: z.string(), note: z.string().optional() }))
+        .default([]),
+      provenance: z.array(ProvenanceRefSchema).default([]),
+    })
+    .optional(),
+  decisions: z
+    .object({
+      rules: z
+        .array(
+          z.object({
+            rule: z.string(),
+            why: z.string().optional(),
+            source: ProvenanceRefSchema.optional(),
+          }),
+        )
+        .default([]),
+      provenance: z.array(ProvenanceRefSchema).default([]),
+    })
+    .optional(),
+  people: z
+    .object({
+      stakeholders: z.array(z.string()).default([]),
+      escalation: z.string().optional(),
+      reviewers: z.array(z.string()).default([]),
+      provenance: z.array(ProvenanceRefSchema).default([]),
+    })
+    .optional(),
+  sources: z
+    .object({
+      connected: z.array(z.string()).default([]),
+      preferred: z.array(z.string()).default([]),
+      lives: z.string().optional(),
+      provenance: z.array(ProvenanceRefSchema).default([]),
+    })
+    .optional(),
+  comms: z
+    .object({
+      style: z.enum(["terse", "detailed", "balanced"]).optional(),
+      lang: z.enum(["es", "en"]).optional(),
+      logTo: z.string().optional(),
+      format: z.string().optional(),
+      provenance: z.array(ProvenanceRefSchema).default([]),
+    })
+    .optional(),
+  confidence: z
+    .object({
+      who: z.number().min(0).max(1).default(0),
+      focus: z.number().min(0).max(1).default(0),
+      decisions: z.number().min(0).max(1).default(0),
+      people: z.number().min(0).max(1).default(0),
+      sources: z.number().min(0).max(1).default(0),
+      comms: z.number().min(0).max(1).default(0),
+    })
+    .default({
+      who: 0,
+      focus: 0,
+      decisions: 0,
+      people: 0,
+      sources: 0,
+      comms: 0,
+    }),
+  updatedAt: z.string().default(""),
+});
+export type BrainProfile = z.infer<typeof BrainProfileSchema>;
+
+const EMPTY_PROFILE: BrainProfile = BrainProfileSchema.parse({});
+
 export const UserBrainSchema = z.object({
   entries: z.array(BrainEntrySchema).default([]),
+  profile: BrainProfileSchema.default(EMPTY_PROFILE),
   updatedAt: z.string().default(""),
 });
 export type UserBrain = z.infer<typeof UserBrainSchema>;
 
-const EMPTY_BRAIN: UserBrain = { entries: [], updatedAt: "" };
+const EMPTY_BRAIN: UserBrain = {
+  entries: [],
+  profile: EMPTY_PROFILE,
+  updatedAt: "",
+};
 
 async function readBrain(): Promise<UserBrain> {
   try {
@@ -90,7 +227,61 @@ export async function removeBrainEntry(id: string): Promise<UserBrain> {
 }
 
 export async function clearBrain(): Promise<void> {
-  await writeBrain({ entries: [], updatedAt: new Date().toISOString() });
+  await writeBrain({
+    entries: [],
+    profile: EMPTY_PROFILE,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+// ── Profile helpers ─────────────────────────────────────────────────────
+
+export async function loadProfile(): Promise<BrainProfile> {
+  const brain = await readBrain();
+  return brain.profile ?? EMPTY_PROFILE;
+}
+
+// Deep-merge a profile patch. Arrays in the patch replace arrays in the
+// base (callers explicitly compute the next array). `undefined` in the
+// patch leaves the base untouched. Confidence values in the patch
+// override per-dimension scalars.
+export async function mergeProfile(
+  patch: Partial<BrainProfile>,
+): Promise<BrainProfile> {
+  const brain = await readBrain();
+  const base = brain.profile ?? EMPTY_PROFILE;
+  const next: BrainProfile = {
+    ...base,
+    ...patch,
+    confidence: { ...base.confidence, ...(patch.confidence ?? {}) },
+    updatedAt: new Date().toISOString(),
+  };
+  // Re-validate (drops unknown keys, applies defaults)
+  const parsed = BrainProfileSchema.parse(next);
+  brain.profile = parsed;
+  brain.updatedAt = parsed.updatedAt;
+  await writeBrain(brain);
+  return parsed;
+}
+
+export async function setProfileDimension<D extends ProfileDimension>(
+  dim: D,
+  value: BrainProfile[D],
+  confidence?: number,
+): Promise<BrainProfile> {
+  const patch: Partial<BrainProfile> = { [dim]: value } as Partial<BrainProfile>;
+  if (typeof confidence === "number") {
+    patch.confidence = { [dim]: confidence } as BrainProfile["confidence"];
+  }
+  return mergeProfile(patch);
+}
+
+export async function clearProfile(): Promise<BrainProfile> {
+  const brain = await readBrain();
+  brain.profile = EMPTY_PROFILE;
+  brain.updatedAt = new Date().toISOString();
+  await writeBrain(brain);
+  return EMPTY_PROFILE;
 }
 
 const PROMPT_DEFAULT_LIMIT = 50;
@@ -109,11 +300,16 @@ export async function loadBrainForPrompt(
   opts: BrainPromptOptions = {},
 ): Promise<string> {
   const brain = await readBrain();
-  if (brain.entries.length === 0) return "";
+  const profileBlock = renderProfileForPrompt(brain.profile);
+  if (brain.entries.length === 0 && !profileBlock) return "";
   const limit = opts.limit ?? PROMPT_DEFAULT_LIMIT;
   const cap = opts.bodyCap ?? PROMPT_BODY_CAP;
   const slice = brain.entries.slice(0, limit);
   const lines: string[] = [];
+  if (profileBlock) {
+    lines.push(profileBlock);
+    if (slice.length > 0) lines.push("");
+  }
   for (const e of slice) {
     const head = [`#${e.id}`, e.kind, e.source ? `via:${e.source}` : null]
       .filter(Boolean)
@@ -132,6 +328,62 @@ export async function loadBrainForPrompt(
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+function renderProfileForPrompt(profile: BrainProfile | undefined): string {
+  if (!profile) return "";
+  const parts: string[] = [];
+  const { who, focus, decisions, people, sources, comms } = profile;
+
+  if (who && (who.role || who.name || who.company || who.bio)) {
+    const ident = [who.name, who.roleLabel ?? who.role, who.company, who.team]
+      .filter(Boolean)
+      .join(" · ");
+    if (ident) parts.push(`  identity: ${ident}`);
+    if (who.bio) parts.push(`  bio: ${who.bio}`);
+  }
+  if (focus) {
+    if (focus.summary) parts.push(`  focus: ${focus.summary}`);
+    if (focus.areas.length) parts.push(`  areas: ${focus.areas.join(", ")}`);
+    if (focus.activeInitiatives.length) {
+      parts.push("  initiatives:");
+      for (const i of focus.activeInitiatives) {
+        parts.push(`    - ${i.title}${i.note ? ` — ${i.note}` : ""}`);
+      }
+    }
+  }
+  if (decisions && decisions.rules.length) {
+    parts.push("  standing decisions (do NOT violate):");
+    for (const r of decisions.rules) {
+      parts.push(`    - ${r.rule}${r.why ? ` (why: ${r.why})` : ""}`);
+    }
+  }
+  if (people) {
+    if (people.stakeholders.length)
+      parts.push(`  stakeholders: ${people.stakeholders.join(", ")}`);
+    if (people.reviewers.length)
+      parts.push(`  reviewers: ${people.reviewers.join(", ")}`);
+    if (people.escalation) parts.push(`  escalation: ${people.escalation}`);
+  }
+  if (sources) {
+    if (sources.connected.length)
+      parts.push(`  connected sources: ${sources.connected.join(", ")}`);
+    if (sources.lives) parts.push(`  context lives in: ${sources.lives}`);
+  }
+  if (comms) {
+    const c = [
+      comms.style ? `style:${comms.style}` : null,
+      comms.lang ? `lang:${comms.lang}` : null,
+      comms.format ? `format:${comms.format}` : null,
+      comms.logTo ? `log-to:${comms.logTo}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    if (c) parts.push(`  comms: ${c}`);
+  }
+
+  if (parts.length === 0) return "";
+  return ["[user profile]", ...parts].join("\n");
 }
 
 export const brainPaths = {

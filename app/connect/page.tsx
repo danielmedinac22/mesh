@@ -207,6 +207,7 @@ export default function ConnectPage() {
   const [ttft, setTtft] = useState<number | null>(null);
   const [ingestTokens, setIngestTokens] = useState<number | null>(null);
   const [cinemaMode, setCinemaMode] = useState<CinemaMode>("off");
+  const userClosedCinema = useRef(false);
   const [degraded, setDegraded] = useState(false);
   const [memory, setMemory] = useState<MemoryView | null>(null);
   const [retries, setRetries] = useState<{ attempt: number; reason: string }[]>([]);
@@ -601,6 +602,7 @@ export default function ConnectPage() {
       return;
     }
     setStatus("cloning");
+    userClosedCinema.current = false;
     setRepos(
       selections.map((s) => ({ name: selectionLabel(s), status: "idle" as const })),
     );
@@ -902,13 +904,16 @@ export default function ConnectPage() {
     return null;
   }, [status, connectPhases]);
 
-  // Auto-open cinema when an ingest run kicks off; auto-dock when done.
+  // Auto-open cinema when an ingest run kicks off; auto-close when done.
+  // Respect manual user dismissal — don't reopen against their will.
   useEffect(() => {
-    if (isRunning && cinemaMode === "off") setCinemaMode("cinema");
+    if (isRunning && cinemaMode === "off" && !userClosedCinema.current) {
+      setCinemaMode("cinema");
+    }
   }, [isRunning, cinemaMode]);
   useEffect(() => {
     if (status === "done" && cinemaMode === "cinema") {
-      const t = setTimeout(() => setCinemaMode("docked"), 1800);
+      const t = setTimeout(() => setCinemaMode("off"), 1800);
       return () => clearTimeout(t);
     }
   }, [status, cinemaMode]);
@@ -1138,9 +1143,10 @@ export default function ConnectPage() {
             </span>
           )
         }
-        onDismiss={() =>
-          setCinemaMode(isRunning || status === "done" ? "docked" : "off")
-        }
+        onDismiss={() => {
+          userClosedCinema.current = true;
+          setCinemaMode("off");
+        }}
         onExpand={() => setCinemaMode("cinema")}
       />
     </AppShell>

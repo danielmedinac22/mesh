@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -51,6 +52,12 @@ type CinemaProps = {
   onDismiss?: () => void;
   /** Called when the user clicks the docked rail to expand back to cinema */
   onExpand?: () => void;
+  /** Persistent multi-agent dispatch summary (shown above stream while present) */
+  dispatchSummary?: {
+    agents: string[];
+    rationale: string;
+    instructionsPerAgent?: Record<string, string>;
+  } | null;
 };
 
 const TONE_COLOR: Record<NonNullable<CinemaPhase["tone"]>, string> = {
@@ -69,8 +76,8 @@ const TONE_GLOW: Record<NonNullable<CinemaPhase["tone"]>, string> = {
 
 function formatTokens(raw: number): { value: string; label: string } {
   const est = Math.max(0, Math.ceil(raw / 4));
-  if (est >= 1000) return { value: (est / 1000).toFixed(1) + "K", label: "thinking" };
-  return { value: String(est), label: "thinking" };
+  if (est >= 1000) return { value: (est / 1000).toFixed(1) + "K", label: "tokens" };
+  return { value: String(est), label: "tokens" };
 }
 
 export function CinemaThinking(props: CinemaProps) {
@@ -92,10 +99,27 @@ function FullCinema(props: CinemaProps) {
     meta,
     footer,
     onDismiss,
+    dispatchSummary,
   } = props;
 
   const [mounted, setMounted] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => setMounted(true), []);
+  useEffect(
+    () => () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    },
+    [],
+  );
+
+  const beginClose = useCallback(() => {
+    if (!onDismiss || closing) return;
+    setClosing(true);
+    closeTimer.current = setTimeout(() => {
+      onDismiss();
+    }, 200);
+  }, [onDismiss, closing]);
 
   const streamRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -105,11 +129,11 @@ function FullCinema(props: CinemaProps) {
   useEffect(() => {
     if (!onDismiss) return;
     const handle = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDismiss();
+      if (e.key === "Escape") beginClose();
     };
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
-  }, [onDismiss]);
+  }, [onDismiss, beginClose]);
 
   const tok = useMemo(() => formatTokens(tokens), [tokens]);
   const tone = phase?.tone ?? "amber";
@@ -117,6 +141,13 @@ function FullCinema(props: CinemaProps) {
   const accentGlow = TONE_GLOW[tone];
 
   if (!mounted) return null;
+
+  const backdropAnim = closing
+    ? "mesh-cinema-backdrop-out var(--motion-base) var(--ease) both"
+    : "mesh-cinema-backdrop var(--motion-base) var(--ease) both";
+  const cardAnim = closing
+    ? "mesh-cinema-out 200ms var(--ease-in) both"
+    : "mesh-cinema-in var(--motion-cinema) var(--ease) both";
 
   return createPortal(
     <div
@@ -131,12 +162,13 @@ function FullCinema(props: CinemaProps) {
         alignItems: "center",
         justifyContent: "center",
         padding: 32,
-        animation: `mesh-cinema-backdrop var(--motion-base) var(--ease) both`,
+        animation: backdropAnim,
+        pointerEvents: closing ? "none" : "auto",
       }}
     >
       <button
         type="button"
-        onClick={onDismiss}
+        onClick={beginClose}
         aria-label="Minimize thinking panel"
         style={{
           position: "absolute",
@@ -149,6 +181,7 @@ function FullCinema(props: CinemaProps) {
         }}
       />
       <div
+        onClick={(e) => e.stopPropagation()}
         style={{
           position: "relative",
           width: "min(1100px, 78vw)",
@@ -161,7 +194,7 @@ function FullCinema(props: CinemaProps) {
           borderRadius: 12,
           boxShadow: `0 28px 80px rgba(0,0,0,0.7), 0 0 0 1px ${accentGlow}, 0 0 60px ${accentGlow}`,
           overflow: "hidden",
-          animation: `mesh-cinema-in var(--motion-cinema) var(--ease) both`,
+          animation: cardAnim,
         }}
       >
         {/* atmospheric glow on top edge */}
@@ -209,7 +242,7 @@ function FullCinema(props: CinemaProps) {
               {onDismiss && (
                 <button
                   type="button"
-                  onClick={onDismiss}
+                  onClick={beginClose}
                   className="mesh-mono"
                   style={{
                     fontSize: 10,
@@ -224,7 +257,7 @@ function FullCinema(props: CinemaProps) {
                   }}
                   aria-label="Minimize"
                 >
-                  esc · dock
+                  esc · close
                 </button>
               )}
             </div>
@@ -271,6 +304,9 @@ function FullCinema(props: CinemaProps) {
             minHeight: 0,
           }}
         >
+          {dispatchSummary && dispatchSummary.agents.length > 0 && (
+            <DispatchCard summary={dispatchSummary} accent={accent} />
+          )}
           {lines && lines.length > 0 ? (
             <StructuredStream lines={lines} active={active} accent={accent} />
           ) : text ? (
@@ -309,7 +345,7 @@ function FullCinema(props: CinemaProps) {
               className="mesh-mono"
               style={{ fontSize: 11, color: MESH.fgMute }}
             >
-              press <span style={{ color: MESH.fg }}>esc</span> to minimize
+              press <span style={{ color: MESH.fg }}>esc</span> to close
             </span>
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
               {footer}
@@ -332,6 +368,7 @@ function DockedThinking(props: CinemaProps) {
     title,
     subtitle,
     onExpand,
+    dispatchSummary,
   } = props;
   const tok = formatTokens(tokens);
   const accent = TONE_COLOR[phase?.tone ?? "amber"];
@@ -414,6 +451,9 @@ function DockedThinking(props: CinemaProps) {
           whiteSpace: "pre-wrap",
         }}
       >
+        {dispatchSummary && dispatchSummary.agents.length > 0 && (
+          <DispatchCard summary={dispatchSummary} accent={accent} compact />
+        )}
         {lines && lines.length > 0 ? (
           <StructuredStream lines={lines} active={false} accent={accent} compact />
         ) : text ? (
@@ -451,6 +491,82 @@ function DockedThinking(props: CinemaProps) {
         </button>
       )}
     </aside>
+  );
+}
+
+function DispatchCard({
+  summary,
+  accent,
+  compact = false,
+}: {
+  summary: NonNullable<CinemaProps["dispatchSummary"]>;
+  accent: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        marginBottom: compact ? 12 : 22,
+        padding: compact ? "10px 12px" : "14px 18px",
+        background: "rgba(245,165,36,0.06)",
+        border: `1px solid ${MESH.amber}55`,
+        borderRadius: 8,
+        display: "flex",
+        flexDirection: "column",
+        gap: compact ? 6 : 10,
+        boxShadow: `0 0 0 1px rgba(245,165,36,0.10)`,
+      }}
+    >
+      <div
+        className="mesh-hud"
+        style={{
+          color: MESH.amber,
+          letterSpacing: "0.18em",
+          fontSize: compact ? 9 : 10,
+        }}
+      >
+        DISPATCHED · {summary.agents.length} AGENT{summary.agents.length === 1 ? "" : "S"}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+        }}
+      >
+        {summary.agents.map((a) => (
+          <span
+            key={a}
+            className="mesh-mono"
+            style={{
+              fontSize: compact ? 10 : 11,
+              padding: "3px 8px",
+              borderRadius: 999,
+              border: `1px solid ${accent}40`,
+              color: accent,
+              background: "rgba(0,0,0,0.25)",
+              textTransform: "lowercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {a}
+          </span>
+        ))}
+      </div>
+      {summary.rationale && (
+        <div
+          className="mesh-mono"
+          style={{
+            fontSize: compact ? 11 : 12,
+            color: MESH.fgDim,
+            lineHeight: 1.55,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {summary.rationale}
+        </div>
+      )}
+    </div>
   );
 }
 

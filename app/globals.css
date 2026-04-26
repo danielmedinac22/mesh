@@ -276,12 +276,20 @@
   to { opacity: 1; }
 }
 @keyframes mesh-cinema-in {
-  from { opacity: 0; transform: scale(0.98) translateY(12px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: scale(0.99); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes mesh-cinema-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.99); }
 }
 @keyframes mesh-cinema-backdrop {
   from { opacity: 0; backdrop-filter: blur(0); }
   to { opacity: 1; backdrop-filter: blur(8px); }
+}
+@keyframes mesh-cinema-backdrop-out {
+  from { opacity: 1; backdrop-filter: blur(8px); }
+  to { opacity: 0; backdrop-filter: blur(0); }
 }
 @keyframes mesh-draw-line {
   to { stroke-dashoffset: 0; }
