@@ -88,7 +88,7 @@ function normalizePaths(
 // Very lightweight matcher: a skill `paths` entry matches if any of the
 // provided repo names / file paths appear inside it (case-insensitive). We
 // intentionally skip a full glob engine here — skills typically scope to
-// a repo name prefix (e.g. "flarebill-api/**") or "**/*".
+// a repo name prefix (e.g. "my-repo/**") or "**/*".
 function pathMatches(
   skillPath: string,
   repos: string[] | undefined,

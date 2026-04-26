@@ -14,6 +14,10 @@ export const IntegrationStateSchema = z.object({
   importedCount: z.number().int().nonnegative().default(0),
   lastImportAt: z.string().optional(),
   lastError: z.string().optional(),
+  mcpLinked: z.boolean().optional(),
+  mcpEmail: z.string().optional(),
+  mcpStatus: z.enum(["linked", "needs_login", "not_installed"]).optional(),
+  mcpLastCheckedAt: z.string().optional(),
 });
 export type IntegrationState = z.infer<typeof IntegrationStateSchema>;
 
@@ -114,6 +118,36 @@ export async function recordImport(
     importedCount: base.importedCount + delta,
     lastImportAt: now,
     lastError: undefined,
+  };
+  if (idx >= 0) file.states[idx] = next;
+  else file.states.push(next);
+  await write(file);
+  return next;
+}
+
+export async function setMcpStatus(
+  kind: IntegrationKind,
+  info: {
+    status: "linked" | "needs_login" | "not_installed";
+    email?: string;
+  },
+): Promise<IntegrationState> {
+  const file = await read();
+  const idx = file.states.findIndex((s) => s.kind === kind);
+  const now = new Date().toISOString();
+  const base: IntegrationState =
+    idx >= 0
+      ? file.states[idx]
+      : { kind, connected: false, importedCount: 0 };
+  const next: IntegrationState = {
+    ...base,
+    mcpLinked: info.status === "linked",
+    mcpStatus: info.status,
+    mcpEmail: info.email ?? base.mcpEmail,
+    mcpLastCheckedAt: now,
+    // Also reflect in `connected` so existing UI light-up keeps working
+    // when the MCP is the source of truth.
+    connected: info.status === "linked" ? true : base.connected,
   };
   if (idx >= 0) file.states[idx] = next;
   else file.states.push(next);

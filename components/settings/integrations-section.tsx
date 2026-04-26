@@ -10,6 +10,7 @@ import {
   SecondaryButton,
 } from "@/components/mesh";
 import { SectionHeader, ErrorBanner } from "./engine-section";
+import { GranolaCard } from "./granola-card";
 
 type IntegrationKind = "github" | "granola" | "jira" | "linear";
 
@@ -29,9 +30,8 @@ type IntegrationItem = {
 };
 
 type GithubAuth = {
-  installed: boolean;
-  authenticated: boolean;
-  username?: string | null;
+  state: "signed-in" | "signed-out" | "not-installed";
+  user?: string | null;
 };
 
 export function IntegrationsSection() {
@@ -48,9 +48,13 @@ export function IntegrationsSection() {
         fetch("/api/github/auth", { cache: "no-store" }),
       ]);
       const intJson = (await intRes.json()) as { integrations: IntegrationItem[] };
-      const ghJson = (await ghRes.json()) as GithubAuth;
+      const ghJson = (await ghRes.json()) as Partial<GithubAuth> & { state?: string };
       setItems(intJson.integrations ?? []);
-      setGithub(ghJson);
+      const state =
+        ghJson.state === "signed-in" || ghJson.state === "signed-out" || ghJson.state === "not-installed"
+          ? ghJson.state
+          : "signed-out";
+      setGithub({ state, user: ghJson.user ?? null });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -75,7 +79,11 @@ export function IntegrationsSection() {
   );
 
   const githubItem = useMemo(() => items.find((i) => i.kind === "github"), [items]);
-  const others = useMemo(() => items.filter((i) => i.kind !== "github"), [items]);
+  const granolaItem = useMemo(() => items.find((i) => i.kind === "granola"), [items]);
+  const others = useMemo(
+    () => items.filter((i) => i.kind !== "github" && i.kind !== "granola"),
+    [items],
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -106,13 +114,17 @@ export function IntegrationsSection() {
               }}
             />
           )}
-          {others.map((it) => (
-            <ProviderCard
-              key={it.kind}
-              item={it}
-              onImport={() => setImporting(it.kind)}
-              onDisconnect={() => disconnect(it.kind)}
+          {granolaItem && (
+            <GranolaCard
+              importedCount={granolaItem.importedCount}
+              lastImportAt={granolaItem.lastImportAt}
+              bodyHint={granolaItem.meta.bodyHint}
+              onPasteTranscript={() => setImporting("granola")}
+              onChanged={loadAll}
             />
+          )}
+          {others.map((it) => (
+            <ProviderCard key={it.kind} item={it} />
           ))}
         </div>
       )}
@@ -138,8 +150,9 @@ function GithubCard({
   auth: GithubAuth | null;
   onJump: () => void;
 }) {
-  const connected = !!auth?.authenticated;
-  const installed = !!auth?.installed;
+  const state = auth?.state ?? "signed-out";
+  const connected = state === "signed-in";
+  const installed = state !== "not-installed";
   return (
     <div style={cardStyle}>
       <CardHeader
@@ -147,7 +160,7 @@ function GithubCard({
         description={item.meta.description}
         right={
           connected ? (
-            <Pill tone="green">connected{auth?.username ? ` · ${auth.username}` : ""}</Pill>
+            <Pill tone="green">connected{auth?.user ? ` · ${auth.user}` : ""}</Pill>
           ) : installed ? (
             <Pill tone="amber">signed out</Pill>
           ) : (
@@ -162,44 +175,18 @@ function GithubCard({
   );
 }
 
-function ProviderCard({
-  item,
-  onImport,
-  onDisconnect,
-}: {
-  item: IntegrationItem;
-  onImport: () => void;
-  onDisconnect: () => void;
-}) {
-  const connected = item.connected;
+function ProviderCard({ item }: { item: IntegrationItem }) {
   return (
-    <div style={cardStyle}>
+    <div style={{ ...cardStyle, opacity: 0.6 }}>
       <CardHeader
         name={item.meta.name}
         description={item.meta.description}
-        right={
-          connected ? (
-            <Pill tone="green">
-              {item.importedCount} imported
-            </Pill>
-          ) : (
-            <Pill tone="dim">not connected</Pill>
-          )
-        }
+        right={<Pill tone="dim">soon</Pill>}
       />
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <PrimaryButton onClick={onImport}>{item.meta.importVerb}</PrimaryButton>
-        {connected && (
-          <SecondaryButton onClick={onDisconnect}>Reset</SecondaryButton>
-        )}
-        {connected && item.lastImportAt && (
-          <span
-            className="font-mono"
-            style={{ fontSize: 10.5, color: MESH.fgMute }}
-          >
-            last import {timeAgo(item.lastImportAt)}
-          </span>
-        )}
+        <PrimaryButton onClick={() => undefined} disabled>
+          {item.meta.importVerb}
+        </PrimaryButton>
       </div>
     </div>
   );

@@ -31,7 +31,7 @@ Rules:
 - stack entries must be concrete names visible in package.json, imports, or config.
 - Output ONLY the JSON object. No markdown fence, no prose, no commentary.`;
 
-function renderRepoAsSystemBlock(repo: IngestedRepo): string {
+export function renderRepoAsSystemBlock(repo: IngestedRepo): string {
   const parts: string[] = [];
   parts.push(`==================== REPO: ${repo.name} ====================`);
   parts.push(`localPath: ${repo.localPath}`);

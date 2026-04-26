@@ -16,8 +16,8 @@ let bootstrapRan = false;
 
 // Idempotent: called at the top of any handler that touches projects/repos/memory.
 // On first run with legacy state (repos.json populated but no projects.json),
-// creates a default "Flarebill" project, assigns all repos to it, and moves
-// the global memory.json into the project folder.
+// creates a default project from the common repo prefix, assigns all repos
+// to it, and moves the global memory.json into the project folder.
 export async function bootstrapProjects(): Promise<void> {
   if (bootstrapRan) return;
   bootstrapRan = true;
@@ -35,7 +35,7 @@ export async function bootstrapProjects(): Promise<void> {
   const project: ProjectRecord = {
     id: defaultId,
     name: defaultName,
-    label: defaultName === "Flarebill" ? "SaaS billing" : undefined,
+    label: undefined,
     color: "amber",
     repos: repos.map((r) => r.name),
     createdAt: now,
@@ -70,7 +70,7 @@ export async function bootstrapProjects(): Promise<void> {
 }
 
 function inferProjectName(repos: RepoRecord[]): string {
-  // Find a common prefix like "flarebill-" across repo names.
+  // Find a common prefix (e.g. "acme-") across repo names.
   const names = repos.map((r) => r.name);
   if (names.length === 0) return "Project";
   const first = names[0];
@@ -82,5 +82,5 @@ function inferProjectName(repos: RepoRecord[]): string {
   }
   const raw = first.slice(0, prefixLen).replace(/[-_]+$/, "");
   if (raw.length >= 3) return raw.charAt(0).toUpperCase() + raw.slice(1);
-  return "Flarebill";
+  return "Project";
 }

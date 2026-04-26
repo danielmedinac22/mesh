@@ -89,6 +89,17 @@ type ServerEvent =
   | { type: "text"; delta: string }
   | { type: "meta"; ttft_ms: number }
   | { type: "memory"; memory: MemoryView }
+  | { type: "skill-start"; name: string }
+  | {
+      type: "skill-saved";
+      repo: string;
+      name: string;
+      id: string;
+      description: string;
+      kind: string;
+    }
+  | { type: "skill-done"; name: string; count: number }
+  | { type: "skill-error"; name: string; message: string }
   | { type: "retry"; attempt: number; reason: string }
   | {
       type: "done";
@@ -213,6 +224,9 @@ export default function ConnectPage() {
   const [degraded, setDegraded] = useState(false);
   const [memory, setMemory] = useState<MemoryView | null>(null);
   const [retries, setRetries] = useState<{ attempt: number; reason: string }[]>([]);
+  const [generatedSkills, setGeneratedSkills] = useState<
+    { repo: string; name: string; id: string; description: string; kind: string }[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [cacheCreate, setCacheCreate] = useState<number | null>(null);
@@ -615,6 +629,7 @@ export default function ConnectPage() {
     setDegraded(false);
     setMemory(null);
     setRetries([]);
+    setGeneratedSkills([]);
     setError(null);
     setDuration(null);
     setCacheCreate(null);
@@ -733,6 +748,26 @@ export default function ConnectPage() {
         break;
       case "retry":
         setRetries((r) => [...r, { attempt: ev.attempt, reason: ev.reason }]);
+        break;
+      case "skill-start":
+      case "skill-done":
+      case "skill-error":
+        break;
+      case "skill-saved":
+        setGeneratedSkills((prev) =>
+          prev.some((s) => s.id === ev.id)
+            ? prev
+            : [
+                ...prev,
+                {
+                  repo: ev.repo,
+                  name: ev.name,
+                  id: ev.id,
+                  description: ev.description,
+                  kind: ev.kind,
+                },
+              ],
+        );
         break;
       case "done":
         setStatus("done");
@@ -1058,6 +1093,7 @@ export default function ConnectPage() {
             cloneLog={cloneLog}
             selections={selections}
             persistedRegistry={persistedRegistry}
+            generatedSkills={generatedSkills}
             onReset={() => {
               setStatus("idle");
             }}
@@ -2510,6 +2546,7 @@ function IngestLayout({
   cloneLog,
   selections,
   persistedRegistry,
+  generatedSkills,
   onReset,
   onAbort,
 }: {
@@ -2527,6 +2564,7 @@ function IngestLayout({
   cloneLog: string[];
   selections: Selection[];
   persistedRegistry: PersistedRepo[];
+  generatedSkills: { repo: string; name: string; id: string; description: string; kind: string }[];
   onReset: () => void;
   onAbort: () => void;
 }) {
@@ -2695,6 +2733,84 @@ function IngestLayout({
                   {inv.evidence.length} evidence
                 </span>
               </div>
+            ))}
+          </div>
+        )}
+
+        {generatedSkills.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 10,
+                color: MESH.fgMute,
+                textTransform: "uppercase",
+                letterSpacing: "0.14em",
+              }}
+            >
+              Skills derived
+            </span>
+            <p
+              className="font-mono"
+              style={{
+                fontSize: 10.5,
+                color: MESH.fgMute,
+                lineHeight: 1.55,
+                margin: 0,
+              }}
+            >
+              Per-repo SKILL.md files synthesized from this ingest. Build and Ship
+              load them automatically when editing matching paths.
+            </p>
+            {generatedSkills.map((s) => (
+              <a
+                key={s.id}
+                href={`/skills?id=${encodeURIComponent(s.id)}`}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 6,
+                  border: `1px solid ${MESH.border}`,
+                  background: MESH.bg,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  textDecoration: "none",
+                  color: "inherit",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span
+                    className="font-mono"
+                    style={{ fontSize: 10, color: MESH.fgMute }}
+                  >
+                    {s.repo}
+                  </span>
+                  <span
+                    className="font-mono"
+                    style={{ fontSize: 10, color: MESH.amber, textTransform: "uppercase" }}
+                  >
+                    {s.kind}
+                  </span>
+                </div>
+                <span
+                  className="font-mono"
+                  style={{ fontSize: 11.5, color: MESH.fg }}
+                >
+                  {s.name}
+                </span>
+                {s.description && (
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: MESH.fgMute,
+                      margin: 0,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {s.description}
+                  </p>
+                )}
+              </a>
             ))}
           </div>
         )}
@@ -3249,7 +3365,7 @@ function CreateProjectGate({
         </div>
         <input
           autoFocus
-          placeholder="Project name · e.g. Flarebill"
+          placeholder="Project name · e.g. Acme"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           onKeyDown={(e) => {

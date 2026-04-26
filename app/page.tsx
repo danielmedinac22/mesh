@@ -407,7 +407,7 @@ function CreateFirstProjectForm() {
               void submit();
             }
           }}
-          placeholder="e.g. flarebill"
+          placeholder="e.g. acme"
           autoFocus
           disabled={busy}
           style={{

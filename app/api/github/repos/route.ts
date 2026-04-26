@@ -76,14 +76,6 @@ export async function GET(req: NextRequest) {
       ]);
     }
 
-    const EXCLUDED = new Set([
-      "danielmedinac22/claude-hackathon",
-      "danielmedinac22/mesh",
-    ]);
-    repos = repos.filter(
-      (r) => !EXCLUDED.has(r.nameWithOwner.toLowerCase()),
-    );
-
     return NextResponse.json({
       repos: repos.map((r) => ({
         nameWithOwner: r.nameWithOwner,
