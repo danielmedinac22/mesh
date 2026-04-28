@@ -31,6 +31,7 @@ import {
 } from "@/lib/ship-session";
 import { openPr } from "@/lib/github-pr";
 import { getTicket, updateTicket } from "@/lib/ticket-store";
+import { triggerSelfHeal } from "@/lib/self-heal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -148,7 +149,10 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const stepsDoneByShip = { count: 0 };
+      const recentEvents: ShipEvent[] = [];
       const send = (ev: ShipEvent) => {
+        recentEvents.push(ev);
+        if (recentEvents.length > 30) recentEvents.shift();
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
         if (!ticketId) return;
         // Best-effort ticket mirroring. Errors here must not break ship.
@@ -171,6 +175,15 @@ export async function POST(req: NextRequest) {
         send({
           type: "error",
           message: err instanceof Error ? err.message : String(err),
+        });
+        triggerSelfHeal("/api/ship", err, {
+          requestSummary: {
+            planId: saved.id,
+            ticketId,
+            forceSim,
+            maxAttempts,
+          },
+          recentEvents,
         });
       } finally {
         controller.close();

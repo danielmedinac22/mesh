@@ -8,7 +8,7 @@ Mesh es una capa de gobernanza poly-repo sobre Claude Opus 4.7 que convierte tic
 
 **v0.5 — Codebase viva** (v0.5)
 Status: In progress
-Phases: 0 of 5 complete
+Phases: 0 of 6 complete
 
 ## Phases
 
@@ -16,7 +16,7 @@ Phases: 0 of 5 complete
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with [INSERTED])
 
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Name | Plans | Status | Completed |
 |-------|------|-------|--------|-----------|
@@ -25,6 +25,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3 | Skills con kind (invariant/pattern/knowledge) | 4 | Not started | - |
 | 4 | Agentes pre-creados + master dispatch dinámico | 5 | Not started | - |
 | 5 | Limpieza UI (ContextFooter) | 1 | Not started | - |
+| 6 | Run guiado en Connect (raise repo locally) | 4 | Not started | - |
 
 ## Phase Details
 
@@ -113,6 +114,25 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 **Plans:**
 - [ ] 05-01: Eliminar `ContextFooter` + `STATE_COLOR`/`STATE_COPY`/`formatK`/`formatSignedK` + `useSessionUsage` si es huérfano
+
+### Phase 6: Run guiado en Connect (raise repo locally)
+
+**Goal:** Después de conectar un repo, Mesh guía al usuario a levantarlo localmente con un click. Detecta el script de arranque, qué env vars necesita, hints de federation/monorepo, y arranca el proceso reusando `lib/preview-server.ts`. El usuario pasa de "tengo el código clonado" a "tengo el servicio corriendo en `localhost:3xxx`" sin abrir terminal.
+**Depends on:** Phase 1 (idealmente la ficha de repo ya está, pero puede empezar antes — el panel se inserta en `/repos/<name>`)
+**Research:** Unlikely (la infra de preview-server ya existe, falta detección + UI)
+
+**Scope:**
+- `lib/repo-runner.ts`: detector que lee `package.json` (scripts + packageManager), `.env.example` (reusa `lib/env-detect.ts`), `module-federation.config.{js,ts}`, `nx.json`/`turbo.json`/`lerna.json`, `docker-compose.{yml,yaml}`, README hints. Output: `RepoRunPlan { script, packageManager, envRequired, federationHints[], dockerCompose?, port? }`.
+- `/api/preview/plan`: endpoint que devuelve el `RepoRunPlan` para un repo registrado.
+- `/api/preview/start` extendido: `ticket_id` opcional; si falta, sintetiza `run-${repo}` para sesión "run-only" sin amarrar a un ticket.
+- UI nueva en `/repos/[name]/page.tsx`: panel "Run locally" con script detectado, formulario de env vars faltantes (persistidas via `setRepoEnv`), avisos de federation hints (no resuelve cross-repo en esta fase, solo informa), botón "Start" que arranca y muestra log tail + URL ready.
+- Federation hints son **informativos**: "veo `module-federation.config.js` apuntando a `host:3001` — eso parece otro repo, levántalo aparte". Trampolín a Phase 7+ (orquestación cross-repo).
+
+**Plans:**
+- [ ] 06-01: `lib/repo-runner.ts` con detection + tests manuales contra `simetrik-inc/fc-frontend`
+- [ ] 06-02: `/api/preview/plan/route.ts` que sirve el plan
+- [ ] 06-03: Relajar `/api/preview/start` para aceptar sesiones run-only (sin `ticket_id`)
+- [ ] 06-04: Panel "Run locally" en `/repos/[name]/page.tsx` con env form + Start + log tail
 
 ---
 

@@ -72,3 +72,4 @@ export {
   type LastTurn,
   type PressureState,
 } from "./usage-context";
+export { HealBadge } from "./heal-badge";

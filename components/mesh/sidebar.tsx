@@ -36,6 +36,7 @@ type ProjectNavItem = { id: IconKind; label: string; href: (projectId: string) =
 const PROJECT_NAV: ProjectNavItem[] = [
   { id: "overview", label: "Overview", href: (id) => `/projects/${encodeURIComponent(id)}` },
   { id: "connect", label: "Connect", href: () => "/connect" },
+  { id: "run", label: "Run", href: (id) => `/projects/${encodeURIComponent(id)}/run` },
   { id: "build", label: "Build", href: () => "/build" },
   { id: "ship", label: "Ship", href: () => "/ship" },
 ];

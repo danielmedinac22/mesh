@@ -9,6 +9,7 @@ import {
   buildSkillGenerateSystem,
   buildSkillGenerateUser,
 } from "@/lib/prompts/skill-generate";
+import { triggerSelfHeal } from "@/lib/self-heal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,9 +60,21 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const recentEvents: GenerateEvent[] = [];
       const send = (ev: GenerateEvent) => {
+        recentEvents.push(ev);
+        if (recentEvents.length > 30) recentEvents.shift();
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
       };
+      const heal = (err: unknown) =>
+        triggerSelfHeal("/api/skills/generate", err, {
+          requestSummary: {
+            intent: parsed.data.intent,
+            scope: parsed.data.scope,
+            scopeLabel: parsed.data.scopeLabel,
+          },
+          recentEvents,
+        });
       let text = "";
       try {
         for await (const ev of engine.run({
@@ -79,26 +92,25 @@ export async function POST(req: NextRequest) {
             send({ type: "meta", ttft_ms: ev.ttft_ms });
           } else if (ev.type === "error") {
             send({ type: "error", message: ev.message });
+            heal(new Error(ev.message));
             controller.close();
             return;
           }
         }
         const raw = extractSkillMarkdown(text);
         if (!raw) {
-          send({
-            type: "error",
-            message: "generator did not return a SKILL.md",
-          });
+          const msg = "generator did not return a SKILL.md";
+          send({ type: "error", message: msg });
+          heal(new Error(msg));
           controller.close();
           return;
         }
         try {
           parseSkillFile(raw);
         } catch (err) {
-          send({
-            type: "error",
-            message: `generated SKILL.md did not parse: ${err instanceof Error ? err.message : String(err)}`,
-          });
+          const msg = `generated SKILL.md did not parse: ${err instanceof Error ? err.message : String(err)}`;
+          send({ type: "error", message: msg });
+          heal(new Error(msg));
           controller.close();
           return;
         }
@@ -108,6 +120,7 @@ export async function POST(req: NextRequest) {
           type: "error",
           message: err instanceof Error ? err.message : String(err),
         });
+        heal(err);
       } finally {
         controller.close();
       }

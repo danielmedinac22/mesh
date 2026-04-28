@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
-import { UsageProvider } from "@/components/mesh";
+import { UsageProvider, HealBadge } from "@/components/mesh";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -41,7 +41,10 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable} font-sans antialiased`}
       >
-        <UsageProvider>{children}</UsageProvider>
+        <UsageProvider>
+          {children}
+          <HealBadge />
+        </UsageProvider>
       </body>
     </html>
   );

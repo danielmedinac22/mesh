@@ -3,6 +3,7 @@ import { MESH } from "./tokens";
 export type IconKind =
   | "home"
   | "connect"
+  | "run"
   | "build"
   | "ship"
   | "skills"
@@ -50,6 +51,12 @@ export function NavIcon({
       return (
         <svg viewBox="0 0 16 16" {...s}>
           <path d="M6 3H4a2 2 0 00-2 2v6a2 2 0 002 2h2M10 3h2a2 2 0 012 2v6a2 2 0 01-2 2h-2M5 8h6" />
+        </svg>
+      );
+    case "run":
+      return (
+        <svg viewBox="0 0 16 16" {...s}>
+          <path d="M5 3.5l7 4.5-7 4.5z" />
         </svg>
       );
     case "build":

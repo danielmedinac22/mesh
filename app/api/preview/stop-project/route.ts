@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { getReposForProject, getProject } from "@/lib/mesh-state";
 import { stopPreview } from "@/lib/preview-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BodySchema = z.object({
-  ticket_id: z.string().min(1).optional(),
-  repo: z.string().min(1),
+  projectId: z.string().min(1),
 });
 
 export async function POST(req: NextRequest) {
@@ -19,7 +19,17 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const ticketId = parsed.data.ticket_id ?? `run-${parsed.data.repo}`;
-  const stopped = await stopPreview(ticketId, parsed.data.repo);
-  return Response.json({ ok: stopped });
+  const project = await getProject(parsed.data.projectId);
+  if (!project) {
+    return Response.json(
+      { error: `project not found: ${parsed.data.projectId}` },
+      { status: 404 },
+    );
+  }
+  const repos = await getReposForProject(parsed.data.projectId);
+  let stopped = 0;
+  for (const r of repos) {
+    if (await stopPreview(`run-${r.name}`, r.name)) stopped += 1;
+  }
+  return Response.json({ stopped });
 }
