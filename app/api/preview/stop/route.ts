@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BodySchema = z.object({
-  ticket_id: z.string().min(1),
+  ticket_id: z.string().min(1).optional(),
   repo: z.string().min(1),
 });
 
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const stopped = await stopPreview(parsed.data.ticket_id, parsed.data.repo);
+  const ticketId = parsed.data.ticket_id ?? `run-${parsed.data.repo}`;
+  const stopped = await stopPreview(ticketId, parsed.data.repo);
   return Response.json({ ok: stopped });
 }

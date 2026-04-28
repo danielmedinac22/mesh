@@ -87,7 +87,7 @@ export default function RepoOverviewPage() {
               textDecoration: "none",
             }}
           >
-            env vars →
+            configure & run →
           </Link>
         </>
       }

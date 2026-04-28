@@ -6,13 +6,20 @@ import {
   startPreview,
   type PreviewEvent,
 } from "@/lib/preview-server";
+import { triggerSelfHeal } from "@/lib/self-heal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BodySchema = z.object({
-  ticket_id: z.string().min(1),
+  // Optional: when omitted (e.g. "Run locally" from /repos/<name>), the
+  // session is keyed by `run-${repo}` so it doesn't collide with Ship sessions.
+  ticket_id: z.string().min(1).optional(),
   repo: z.string().min(1),
+  // For docker-compose repos: "deps-only" runs only services without a
+  // `build:` directive (db, redis, …) — useful when the user can't build
+  // app images (missing creds for private registries, etc.).
+  composeMode: z.enum(["full", "deps-only"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -37,7 +44,10 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const recentEvents: PreviewEvent[] = [];
       const send = (ev: PreviewEvent) => {
+        recentEvents.push(ev);
+        if (recentEvents.length > 30) recentEvents.shift();
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
         } catch {
@@ -46,9 +56,10 @@ export async function POST(req: NextRequest) {
       };
       try {
         const session = await startPreview({
-          ticketId: parsed.data.ticket_id,
+          ticketId: parsed.data.ticket_id ?? `run-${parsed.data.repo}`,
           repoName: parsed.data.repo,
           cwd: repo.localPath,
+          composeMode: parsed.data.composeMode,
           onEvent: send,
         });
         // Keep the SSE alive until the process emits ready/failed/stopped, or
@@ -63,6 +74,13 @@ export async function POST(req: NextRequest) {
         send({
           type: "failed",
           reason: err instanceof Error ? err.message : String(err),
+        });
+        triggerSelfHeal("/api/preview/start", err, {
+          requestSummary: {
+            repo: parsed.data.repo,
+            ticket_id: parsed.data.ticket_id,
+          },
+          recentEvents,
         });
       } finally {
         try {
