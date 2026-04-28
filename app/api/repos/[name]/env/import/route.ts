@@ -21,7 +21,8 @@ Rules:
 - Skip lines that look like placeholders (e.g. value is empty, "your_key_here", "xxx", "TODO", "...", "<your_secret>", "changeme"). Add them to skipped with reason="placeholder".
 - Skip duplicates (later wins). Note duplicates in skipped with reason="duplicate".
 - Preserve multi-line values that use quoted strings.
-- Keys must match /^[A-Z_][A-Z0-9_]*$/i. Skip malformed lines with reason="malformed".
+- Keys must match /^[A-Za-z_][A-Za-z0-9_]*$/. Skip malformed lines with reason="malformed".
+- Normalize all keys to UPPERCASE in the output (e.g. "aws_access_key_id" → "AWS_ACCESS_KEY_ID"). docker-compose's variable interpolation and most apps expect uppercase. If the input had a lowercase key, mention the renames once in "notes" — do NOT echo values.
 - Do not invent keys. Do not add keys that are not present in the input.
 - Do not echo secret values in "notes".
 
