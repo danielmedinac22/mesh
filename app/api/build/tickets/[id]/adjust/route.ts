@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { pipelineToSSE, runAdjustPipeline } from "@/lib/build-pipeline";
 import { getTicket } from "@/lib/ticket-store";
+import { withSelfHealOnSse } from "@/lib/self-heal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,11 +37,21 @@ export async function POST(
   }
 
   const stream = pipelineToSSE(
-    runAdjustPipeline({
-      ticket_id: id,
-      instruction: parsed.data.instruction,
-      quick_actions: parsed.data.quick_actions,
-    }),
+    withSelfHealOnSse(
+      runAdjustPipeline({
+        ticket_id: id,
+        instruction: parsed.data.instruction,
+        quick_actions: parsed.data.quick_actions,
+      }),
+      "/api/build/tickets/[id]/adjust",
+      () => ({
+        requestSummary: {
+          ticket_id: id,
+          instruction: parsed.data.instruction,
+          quick_actions: parsed.data.quick_actions,
+        },
+      }),
+    ),
   );
   return new Response(stream, {
     headers: {

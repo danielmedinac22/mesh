@@ -27,6 +27,7 @@ import {
 } from "@/lib/mesh-state";
 import { bootstrapProjects } from "@/lib/migrations";
 import { gh, ghInstalled, GhError } from "@/lib/gh-cli";
+import { triggerSelfHeal } from "@/lib/self-heal";
 
 type GhSource = { owner: string; repo: string; branch: string };
 type LocalSource = {
@@ -199,7 +200,11 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // Keep the last few events around so self-heal has context if we crash.
+      const recentEvents: ConnectEvent[] = [];
       const send = (ev: ConnectEvent) => {
+        recentEvents.push(ev);
+        if (recentEvents.length > 30) recentEvents.shift();
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
       };
 
@@ -374,6 +379,19 @@ export async function POST(req: NextRequest) {
           type: "error",
           message: err instanceof Error ? err.message : String(err),
         });
+        triggerSelfHeal("/api/connect", err, {
+          requestSummary: {
+            projectId,
+            sources,
+            localSources: localSources.map((l) => ({
+              name: l.name,
+              branch: l.branch,
+              githubOwner: l.githubOwner,
+              githubRepo: l.githubRepo,
+            })),
+          },
+          recentEvents,
+        });
       } finally {
         controller.close();
       }
@@ -500,6 +518,7 @@ async function runWithRetries(
     let metaOutputTokens: number | undefined;
     let metaCacheCreate: number | undefined;
     let metaCacheRead: number | undefined;
+    let engineError: string | null = null;
     const readyRepos = new Set<string>();
     const repoNames = new Set(ingest.repos.map((r) => r.name));
 
@@ -531,13 +550,21 @@ async function runWithRetries(
         metaCacheCreate = ev.cache_creation_input_tokens;
         metaCacheRead = ev.cache_read_input_tokens;
       } else if (ev.type === "error") {
-        lastError = ev.message;
+        engineError = ev.message;
         continue;
       }
     }
 
     for (const name of repoNames) {
       if (!readyRepos.has(name)) send({ type: "repo-ready", name });
+    }
+
+    // If the engine itself failed and produced no text, surface that error
+    // verbatim — otherwise parseMemoryJson("") would mask it with the
+    // unhelpful "Unexpected end of JSON input".
+    if (engineError && fullText.trim() === "") {
+      lastError = `engine error: ${engineError}`;
+      continue;
     }
 
     try {
@@ -554,7 +581,10 @@ async function runWithRetries(
         },
       };
     } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
+      const parseErr = err instanceof Error ? err.message : String(err);
+      lastError = engineError
+        ? `engine error: ${engineError}; parse error: ${parseErr}`
+        : parseErr;
     }
   }
 

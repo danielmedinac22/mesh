@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { pipelineToSSE, runDraftPipeline } from "@/lib/build-pipeline";
 import { getTicket } from "@/lib/ticket-store";
+import { withSelfHealOnSse } from "@/lib/self-heal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,13 @@ export async function POST(
     return Response.json({ error: "ticket not found" }, { status: 404 });
   }
 
-  const stream = pipelineToSSE(runDraftPipeline({ ticket_id: id }));
+  const stream = pipelineToSSE(
+    withSelfHealOnSse(
+      runDraftPipeline({ ticket_id: id }),
+      "/api/build/tickets/[id]/draft",
+      () => ({ requestSummary: { ticket_id: id } }),
+    ),
+  );
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",

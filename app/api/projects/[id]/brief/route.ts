@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { generateProjectBrief } from "@/lib/project-brief";
 import { bootstrapProjects } from "@/lib/migrations";
+import { triggerSelfHeal } from "@/lib/self-heal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,10 @@ export async function POST(
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const recentEvents: unknown[] = [];
       const send = (ev: unknown) => {
+        recentEvents.push(ev);
+        if (recentEvents.length > 30) recentEvents.shift();
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
       };
       try {
@@ -24,6 +28,10 @@ export async function POST(
         send({
           type: "error",
           message: err instanceof Error ? err.message : String(err),
+        });
+        triggerSelfHeal("/api/projects/[id]/brief", err, {
+          requestSummary: { projectId: params.id },
+          recentEvents,
         });
       } finally {
         controller.close();
