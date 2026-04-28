@@ -16,12 +16,57 @@ type GhRepo = {
   primaryLanguage?: { name: string } | null;
 };
 
+type Org = { login: string };
+
+async function listOwnerLogins(): Promise<string[]> {
+  // "@me" + every org the authenticated user belongs to.
+  // `gh api user/orgs` requires the `read:org` scope (already granted by `gh auth login`).
+  try {
+    const orgs = await ghJson<Org[]>(["api", "user/orgs"]);
+    return ["@me", ...orgs.map((o) => o.login)];
+  } catch {
+    return ["@me"];
+  }
+}
+
+async function listReposForOwner(
+  owner: string,
+  limit: number,
+  fields: string,
+): Promise<GhRepo[]> {
+  const args =
+    owner === "@me"
+      ? ["repo", "list", "--limit", String(limit), "--json", fields]
+      : ["repo", "list", owner, "--limit", String(limit), "--json", fields];
+  return ghJson<GhRepo[]>(args).catch(() => []);
+}
+
+async function searchOwner(
+  owner: string,
+  q: string,
+  limit: number,
+  fields: string,
+): Promise<GhRepo[]> {
+  return ghJson<GhRepo[]>([
+    "search",
+    "repos",
+    q,
+    "--owner",
+    owner,
+    "--limit",
+    String(limit),
+    "--json",
+    fields,
+  ]).catch(() => listReposForOwner(owner, limit, fields));
+}
+
 export async function GET(req: NextRequest) {
   const limit = Math.min(
     Number(req.nextUrl.searchParams.get("limit") ?? "50") || 50,
     200,
   );
   const q = req.nextUrl.searchParams.get("q")?.trim();
+  const ownerFilter = req.nextUrl.searchParams.get("owner")?.trim() || null;
 
   try {
     const fields =
@@ -39,42 +84,36 @@ export async function GET(req: NextRequest) {
       ]);
       repos = [r];
     } else if (q) {
-      repos = await ghJson<GhRepo[]>([
-        "search",
-        "repos",
-        q,
-        "--owner",
-        "@me",
-        "--limit",
-        String(limit),
-        "--json",
-        fields,
-      ]).catch(async () =>
-        ghJson<GhRepo[]>([
-          "repo",
-          "list",
-          "--limit",
-          String(limit),
-          "--json",
-          fields,
-        ]),
+      const owners = ownerFilter ? [ownerFilter] : await listOwnerLogins();
+      const buckets = await Promise.all(
+        owners.map((o) => searchOwner(o, q, limit, fields)),
       );
       const needle = q.toLowerCase();
-      repos = repos.filter(
-        (r) =>
-          r.nameWithOwner.toLowerCase().includes(needle) ||
-          (r.description ?? "").toLowerCase().includes(needle),
-      );
+      repos = buckets
+        .flat()
+        .filter(
+          (r) =>
+            r.nameWithOwner.toLowerCase().includes(needle) ||
+            (r.description ?? "").toLowerCase().includes(needle),
+        );
     } else {
-      repos = await ghJson<GhRepo[]>([
-        "repo",
-        "list",
-        "--limit",
-        String(limit),
-        "--json",
-        fields,
-      ]);
+      const owners = ownerFilter ? [ownerFilter] : await listOwnerLogins();
+      const buckets = await Promise.all(
+        owners.map((o) => listReposForOwner(o, limit, fields)),
+      );
+      repos = buckets.flat();
     }
+
+    // Dedupe and sort by most recently updated; cap at limit.
+    const seen = new Set<string>();
+    repos = repos
+      .filter((r) => {
+        if (seen.has(r.nameWithOwner)) return false;
+        seen.add(r.nameWithOwner);
+        return true;
+      })
+      .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+      .slice(0, limit);
 
     return NextResponse.json({
       repos: repos.map((r) => ({

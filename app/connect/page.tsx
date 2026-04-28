@@ -198,6 +198,8 @@ export default function ConnectPage() {
   const [remoteRepos, setRemoteRepos] = useState<RemoteRepo[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
+  const [owners, setOwners] = useState<{ login: string; kind: "user" | "org" }[]>([]);
+  const [selectedOwner, setSelectedOwner] = useState<string>(""); // "" = all
   const [branches, setBranches] = useState<Record<string, BranchInfo[]>>({});
   const [selections, setSelections] = useState<Selection[]>([]);
   const [tab, setTab] = useState<PickerTab>("github");
@@ -465,12 +467,13 @@ export default function ConnectPage() {
     }
   }, []);
 
-  const loadRepos = useCallback(async (q?: string) => {
+  const loadRepos = useCallback(async (q?: string, owner?: string) => {
     setLoadingRepos(true);
     setRepoError(null);
     try {
       const u = new URL("/api/github/repos", window.location.origin);
       if (q?.trim()) u.searchParams.set("q", q.trim());
+      if (owner?.trim()) u.searchParams.set("owner", owner.trim());
       u.searchParams.set("limit", "50");
       const res = await fetch(u.toString(), { cache: "no-store" });
       const json = await res.json();
@@ -484,13 +487,30 @@ export default function ConnectPage() {
     }
   }, []);
 
+  const loadOwners = useCallback(async () => {
+    try {
+      const res = await fetch("/api/github/orgs", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        owners?: { login: string; kind: "user" | "org" }[];
+      };
+      setOwners(json.owners ?? []);
+    } catch {
+      // silent — selector simply stays empty (= "all")
+    }
+  }, []);
+
   useEffect(() => {
     loadAuth();
   }, [loadAuth]);
 
   useEffect(() => {
-    if (auth.state === "signed-in") void loadRepos();
-  }, [auth.state, loadRepos]);
+    if (auth.state === "signed-in") {
+      void loadOwners();
+      void loadRepos(undefined, selectedOwner || undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.state, loadOwners, loadRepos]);
 
   const loadPersistedRepos = useCallback(async () => {
     try {
@@ -525,14 +545,14 @@ export default function ConnectPage() {
     }, [loadPersistedRepos]),
   );
 
-  // debounce search
+  // debounce search (also re-runs when the owner filter changes)
   useEffect(() => {
     if (auth.state !== "signed-in") return;
     const t = setTimeout(() => {
-      void loadRepos(query);
+      void loadRepos(query, selectedOwner || undefined);
     }, 280);
     return () => clearTimeout(t);
-  }, [query, auth.state, loadRepos]);
+  }, [query, selectedOwner, auth.state, loadRepos]);
 
   async function ensureBranches(owner: string, name: string): Promise<BranchInfo[]> {
     const key = `${owner}/${name}`;
@@ -1052,6 +1072,9 @@ export default function ConnectPage() {
           authReady={auth.state === "signed-in"}
           query={query}
           onQuery={setQuery}
+          owners={owners}
+          selectedOwner={selectedOwner}
+          onOwnerChange={setSelectedOwner}
           remoteRepos={remoteRepos}
           loadingRepos={loadingRepos}
           repoError={repoError}
@@ -1379,6 +1402,9 @@ function PickerLayout({
   authReady,
   query,
   onQuery,
+  owners,
+  selectedOwner,
+  onOwnerChange,
   remoteRepos,
   loadingRepos,
   repoError,
@@ -1408,6 +1434,9 @@ function PickerLayout({
   authReady: boolean;
   query: string;
   onQuery: (s: string) => void;
+  owners: { login: string; kind: "user" | "org" }[];
+  selectedOwner: string;
+  onOwnerChange: (o: string) => void;
   remoteRepos: RemoteRepo[];
   loadingRepos: boolean;
   repoError: string | null;
@@ -1472,6 +1501,9 @@ function PickerLayout({
             authReady={authReady}
             query={query}
             onQuery={onQuery}
+            owners={owners}
+            selectedOwner={selectedOwner}
+            onOwnerChange={onOwnerChange}
             remoteRepos={remoteRepos}
             loadingRepos={loadingRepos}
             repoError={repoError}
@@ -1640,6 +1672,9 @@ function GithubTab({
   authReady,
   query,
   onQuery,
+  owners,
+  selectedOwner,
+  onOwnerChange,
   remoteRepos,
   loadingRepos,
   repoError,
@@ -1650,6 +1685,9 @@ function GithubTab({
   authReady: boolean;
   query: string;
   onQuery: (s: string) => void;
+  owners: { login: string; kind: "user" | "org" }[];
+  selectedOwner: string;
+  onOwnerChange: (o: string) => void;
   remoteRepos: RemoteRepo[];
   loadingRepos: boolean;
   repoError: string | null;
@@ -1682,6 +1720,30 @@ function GithubTab({
           alignItems: "center",
         }}
       >
+        {owners.length > 0 && (
+          <select
+            value={selectedOwner}
+            onChange={(e) => onOwnerChange(e.target.value)}
+            className="font-mono"
+            style={{
+              background: MESH.bgInput,
+              color: MESH.fg,
+              border: `1px solid ${MESH.border}`,
+              borderRadius: 6,
+              padding: "8px 28px 8px 12px",
+              fontSize: 12.5,
+              outline: "none",
+              maxWidth: 200,
+            }}
+          >
+            <option value="">All owners</option>
+            {owners.map((o) => (
+              <option key={o.login} value={o.login}>
+                {o.login} {o.kind === "org" ? "(org)" : "(you)"}
+              </option>
+            ))}
+          </select>
+        )}
         <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
           <div style={{ position: "absolute", left: 12, pointerEvents: "none" }}>
             <NavIcon kind="search" color={MESH.fgMute} size={13} />
